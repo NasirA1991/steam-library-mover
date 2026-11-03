@@ -27,7 +27,6 @@ jobs:
           host: linux
           target: desktop
           arch: linux_gcc_64
-          modules: qtsvg
           cache: true
       - name: Install linuxdeploy
         run: |
