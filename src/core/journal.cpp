@@ -23,8 +23,10 @@ QString stateDir()
     const QString override = qEnvironmentVariable("SLM_STATE_DIR");
     if (!override.isEmpty())
         return QDir::cleanPath(override);
-    QString base = QStandardPaths::writableLocation(QStandardPaths::GenericStateLocation);
-    if (base.isEmpty())
+    // QStandardPaths::GenericStateLocation was added in Qt 6.5, while this
+    // project supports Qt 6.4. Use the XDG state convention directly.
+    QString base = qEnvironmentVariable("XDG_STATE_HOME");
+    if (base.isEmpty() || !QDir::isAbsolutePath(base))
         base = QDir::homePath() + QStringLiteral("/.local/state");
     return base + QStringLiteral("/steam-library-mover");
 }
