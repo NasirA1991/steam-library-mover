@@ -18,6 +18,10 @@
     <img src="https://img.shields.io/github/v/release/NasirA1991/steam-library-mover?include_prereleases&amp;label=release"
          alt="Latest release">
   </a>
+  <a href="https://aur.archlinux.org/packages/steam-library-mover">
+    <img src="https://img.shields.io/aur/version/steam-library-mover?label=AUR"
+         alt="AUR package">
+  </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg"
          alt="GPL-3.0-or-later">
@@ -36,12 +40,20 @@ Published artifacts are attached to [GitHub Releases](https://github.com/NasirA1
 | --- | --- |
 | `Steam_Library_Mover-x86_64.AppImage` | Portable test on most Linux distributions |
 | `steam-library-mover-*.pkg.tar.zst` | Arch Linux / CachyOS manual install |
+| [AUR `steam-library-mover`](https://aur.archlinux.org/packages/steam-library-mover) | Arch Linux / CachyOS with an AUR helper |
 | `steam-library-mover-*.tar.gz` | Building from source |
 
-The AUR recipe is in [`packaging/aur`](packaging/aur). A Flatpak bundle is **built by GitHub
-Actions as an experimental artifact**, but is not attached to the release: host Steam/Proton
-process detection inside the sandbox has not been validated. Do not install that artifact
-expecting it to be safe for real moves.
+Arch users can install with:
+
+```bash
+yay -S steam-library-mover
+# or: paru -S steam-library-mover
+```
+
+AUR releases are updated automatically by the tag workflow. A Flatpak bundle is **built by
+GitHub Actions as an experimental artifact**, but is not attached to the release: host
+Steam/Proton process detection inside the sandbox has not been validated. Do not install that
+artifact expecting it to be safe for real moves.
 
 ## Screenshots
 
