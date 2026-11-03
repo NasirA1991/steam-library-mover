@@ -1,0 +1,145 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  appimage:
+    name: AppImage
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build g++ libgl1-mesa-dev fuse libfuse2
+      - name: Install Qt 6.8
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          modules: qtsvg
+          cache: true
+      - name: Install linuxdeploy
+        run: |
+          curl -fsSL -o linuxdeploy \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          curl -fsSL -o linuxdeploy-plugin-qt \
+            https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          curl -fsSL -o appimagetool \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x linuxdeploy linuxdeploy-plugin-qt appimagetool
+          mkdir -p "$HOME/.local/bin"
+          mv linuxdeploy linuxdeploy-plugin-qt appimagetool "$HOME/.local/bin/"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Build AppImage
+        env:
+          QMAKE: ${{ env.QT_ROOT_DIR }}/bin/qmake
+          EXTRA_QT_MODULES: svg
+          APPIMAGE_EXTRACT_AND_RUN: '1' 
+        run: |
+          chmod +x packaging/appimage/build-appimage.sh
+          PATH="$QT_ROOT_DIR/bin:$PATH" packaging/appimage/build-appimage.sh
+      - name: Smoke-check AppImage
+        run: |
+          appimage=$(find . -maxdepth 1 -name 'Steam_Library_Mover*.AppImage' -print -quit)
+          test -n "$appimage"
+          chmod +x "$appimage"
+          "$appimage" --appimage-extract >/dev/null
+          test -x squashfs-root/AppRun
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: Steam_Library_Mover*.AppImage
+          if-no-files-found: error
+
+  arch-package:
+    name: Arch package
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    timeout-minutes: 45
+    steps:
+      - name: Install packaging dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel cmake ninja qt6-base qt6-svg git namcap pacman-contrib
+      - uses: actions/checkout@v4
+      - name: Build package
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          useradd --create-home builder
+          chown -R builder:builder .
+          su builder -c "
+            set -eu
+            cd '$PWD/packaging/aur'
+            sed -i \"s/^pkgver=.*/pkgver=$version/\" PKGBUILD
+            updpkgsums
+            makepkg --nodeps --nocheck --force
+          "
+          package=$(find packaging/aur -maxdepth 1 -name '*.pkg.tar.zst' -print -quit)
+          test -n "$package"
+          namcap "$package" || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch-package
+          path: packaging/aur/*.pkg.tar.zst
+          if-no-files-found: error
+
+  source:
+    name: Source archive
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create archive
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          git archive --format=tar.gz \
+            --prefix="steam-library-mover-${version}/" \
+            -o "steam-library-mover-${version}.tar.gz" HEAD
+          sha256sum "steam-library-mover-${version}.tar.gz" > "steam-library-mover-${version}.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source
+          path: |
+            steam-library-mover-*.tar.gz
+            steam-library-mover-*.tar.gz.sha256
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [appimage, arch-package, source]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Generate checksums
+        run: |
+          cd dist
+          find . -maxdepth 1 -type f ! -name SHA256SUMS ! -name '*.sha256' -printf '%f\n' \
+            | sort | xargs -r sha256sum > SHA256SUMS
+          cat SHA256SUMS
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Steam Library Mover ${{ github.ref_name }}
+          prerelease: true
+          body_path: docs/RELEASE_NOTES.md
+          files: |
+            dist/*.AppImage
+            dist/*.pkg.tar.zst
+            dist/*.tar.gz
+            dist/SHA256SUMS

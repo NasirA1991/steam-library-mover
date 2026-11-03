@@ -1,0 +1,71 @@
+name: Bug report
+description: Report a crash, incorrect plan or unsafe behavior
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste Steam credentials, tokens or unredacted personal paths.
+        For a destructive data-loss issue, use SECURITY.md instead of a public issue.
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: v0.1.0 or commit hash
+    validations:
+      required: true
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution and desktop
+      placeholder: CachyOS, KDE Plasma 6.4
+    validations:
+      required: true
+  - type: dropdown
+    id: steam
+    attributes:
+      label: Steam installation
+      options:
+        - Native Steam
+        - Flatpak Steam
+        - Snap Steam
+        - Custom / portable
+    validations:
+      required: true
+  - type: input
+    id: filesystem
+    attributes:
+      label: Source and destination filesystems
+      placeholder: Btrfs source, NTFS destination
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: Describe what you selected and where you tried to move it.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and relevant output
+      description: Include the review blocker text or CLI output. Redact paths and usernames if needed.
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmations
+      options:
+        - label: I have read docs/SAFETY.md and am not reporting a stolen credential or token.
+          required: true
+        - label: This is not a private security report.
+          required: true

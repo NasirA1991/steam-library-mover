@@ -1,0 +1,424 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "core/copyengine.h"
+#include "core/executor.h"
+#include "core/fileops.h"
+#include "core/journal.h"
+#include "core/library.h"
+#include "core/mountinfo.h"
+#include "core/planner.h"
+#include "core/scanner.h"
+#include "core/vdf.h"
+
+#include "test_helpers.h"
+
+#include <QDir>
+#include <atomic>
+#include <thread>
+#include <QFileInfo>
+#include <QTemporaryDir>
+#include <QtTest>
+
+using namespace slm;
+
+class MoverTest : public QObject
+{
+    Q_OBJECT
+private slots:
+    void initTestCase();
+    void sharedPrefixMove();
+    void prefixMoveToRealDirectory();
+    void cancelAndRollback();
+    void revalidateRejectsChangedMount();
+    void keepSourceBackup();
+    void compatToolMetadata();
+    void pauseAndResumeCopy();
+    void sequentialBatchRefreshesVdf();
+    void cancellationInterruptsVerification();
+    void ntfsInvalidNameBlocks();
+    void ntfsAcknowledged();
+};
+
+void MoverTest::initTestCase()
+{
+    // Keep all journal/log/backup data inside the test temporary directory.
+    qputenv("SLM_STATE_DIR", QDir::tempPath().toUtf8() + "/slm-test-state-"
+                                  + qgetenv("USER"));
+}
+
+void MoverTest::sharedPrefixMove()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    qputenv("SLM_STATE_DIR", (temp.path() + QStringLiteral("/state")).toUtf8());
+    const QString steamRoot = testutil::makeFixtureSteam(temp);
+    const QString sourceLibrary = temp.path() + QStringLiteral("/libraryA");
+    const QString destLibrary = temp.path() + QStringLiteral("/libraryB");
+
+    const MountTable mounts = MountTable::fromMounts({testutil::makeMount(temp.path())});
+    QString error;
+    SteamScan scan = scanSteam({steamRoot, InstallKind::Native}, mounts, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(scan.games.size(), 1);
+    QCOMPARE(scan.games.first().appId, 12345u);
+    QVERIFY2(!scan.games.first().artworkPath.isEmpty(), "local Steam librarycache artwork was not found");
+    QVERIFY(scan.games.first().artworkPath.endsWith(QStringLiteral("header.jpg")));
+    QVERIFY2(!scan.games.first().hasBlocker(), qPrintable(scan.games.first().issues.value(0).message));
+
+    MoveOptions options;
+    options.allowNtfsNative = true;
+    MovePlan plan = MovePlanner::plan(scan, 12345, destLibrary, options, mounts, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QVERIFY2(!plan.hasBlocker(), qPrintable(plan.blockers().isEmpty()
+                                                ? QStringLiteral("no blocker")
+                                                : plan.blockers().first().detail));
+    const Component *prefix = plan.findComponent(ComponentKind::Prefix);
+    QVERIFY(prefix);
+    QVERIFY(prefix->skip);
+    QCOMPARE(plan.findComponent(ComponentKind::Game)->bytes, 1048582ull);
+
+    MoveExecutor executor;
+    const MoveResult result = executor.execute(plan, mounts);
+    QVERIFY2(result.ok, qPrintable(result.error));
+
+    QVERIFY(!QFileInfo::exists(sourceLibrary + QStringLiteral("/steamapps/appmanifest_12345.acf")));
+    QVERIFY(!QFileInfo::exists(sourceLibrary + QStringLiteral("/steamapps/common/Test Game")));
+    QVERIFY(QFileInfo::exists(destLibrary + QStringLiteral("/steamapps/appmanifest_12345.acf")));
+    QVERIFY(QFileInfo::exists(destLibrary + QStringLiteral("/steamapps/common/Test Game/game.dat")));
+    QVERIFY(QFileInfo::exists(
+        steamRoot + QStringLiteral("/steamapps/compatdata/12345/pfx/system.reg")));
+    QVERIFY(QFileInfo::exists(destLibrary + QStringLiteral("/steamapps/shadercache/12345/cache.bin")));
+    QVERIFY(QFileInfo::exists(destLibrary + QStringLiteral("/steamapps/workshop/content/12345/mod.bin")));
+
+    const auto vdf = VdfDocument::parse(testutil::readFile(steamRoot + QStringLiteral("/steamapps/libraryfolders.vdf")));
+    QVERIFY(vdf);
+    bool sourceHas = false;
+    bool destHas = false;
+    const VdfNode *libraries = vdf->object(QStringLiteral("libraryfolders"));
+    QVERIFY(libraries);
+    for (const VdfNode &library : libraries->children) {
+        if (library.childValue(QStringLiteral("path")) == sourceLibrary)
+            sourceHas = library.object(QStringLiteral("apps"))
+                && library.object(QStringLiteral("apps"))->child(QStringLiteral("12345"));
+        if (library.childValue(QStringLiteral("path")) == destLibrary)
+            destHas = library.object(QStringLiteral("apps"))
+                && library.object(QStringLiteral("apps"))->child(QStringLiteral("12345"));
+    }
+    QVERIFY(!sourceHas);
+    QVERIFY(destHas);
+
+}
+
+void MoverTest::prefixMoveToRealDirectory()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    qputenv("SLM_STATE_DIR", (temp.path() + QStringLiteral("/state")).toUtf8());
+    const QString steamRoot = testutil::makeFixtureSteam(temp);
+    const QString destLibrary = temp.path() + QStringLiteral("/libraryB");
+    QVERIFY(QFile::remove(destLibrary + QStringLiteral("/steamapps/compatdata")));
+    QDir().mkpath(destLibrary + QStringLiteral("/steamapps/compatdata"));
+
+    const MountTable mounts = MountTable::fromMounts({testutil::makeMount(temp.path())});
+    QString error;
+    SteamScan scan = scanSteam({steamRoot, InstallKind::Native}, mounts, &error);
+    QVERIFY(error.isEmpty());
+    MoveOptions options;
+    options.allowNtfsNative = true;
+    MovePlan plan = MovePlanner::plan(scan, 12345, destLibrary, options, mounts, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QVERIFY2(!plan.hasBlocker(), qPrintable(plan.blockers().isEmpty()
+                                                ? QString()
+                                                : plan.blockers().first().detail));
+    const Component *prefix = plan.findComponent(ComponentKind::Prefix);
+    QVERIFY(prefix);
+    QVERIFY(!prefix->skip);
+
+    MoveExecutor executor;
+    const MoveResult result = executor.execute(plan, mounts);
+    QVERIFY2(result.ok, qPrintable(result.error));
+    QVERIFY(QFileInfo::exists(destLibrary + QStringLiteral("/steamapps/compatdata/12345/pfx/system.reg")));
+    QVERIFY(!QFileInfo::exists(steamRoot + QStringLiteral("/steamapps/compatdata/12345")));
+}
+
+void MoverTest::cancelAndRollback()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    qputenv("SLM_STATE_DIR", (temp.path() + QStringLiteral("/state")).toUtf8());
+    const QString steamRoot = testutil::makeFixtureSteam(temp);
+    const QString sourceLibrary = temp.path() + QStringLiteral("/libraryA");
+    const QString destLibrary = temp.path() + QStringLiteral("/libraryB");
+    const MountTable mounts = MountTable::fromMounts({testutil::makeMount(temp.path())});
+    QString error;
+    SteamScan scan = scanSteam({steamRoot, InstallKind::Native}, mounts, &error);
+    QVERIFY(error.isEmpty());
+    MoveOptions options;
+    options.allowNtfsNative = true;
+    const MovePlan plan = MovePlanner::plan(scan, 12345, destLibrary, options, mounts, &error);
+    QVERIFY(error.isEmpty());
+    QVERIFY(!plan.hasBlocker());
+
+    MoveExecutor executor;
+    const MoveResult result = executor.execute(plan, mounts, {}, []() { return true; });
+    QVERIFY(result.cancelled);
+    QVERIFY(QFileInfo::exists(sourceLibrary + QStringLiteral("/steamapps/common/Test Game/game.dat")));
+    QVERIFY(QFileInfo::exists(sourceLibrary + QStringLiteral("/steamapps/appmanifest_12345.acf")));
+
+    const QList<QJsonObject> operations = MoveExecutor::unfinishedOperations();
+    QVERIFY(!operations.isEmpty());
+    QVERIFY(MoveExecutor::rollbackOperation(operations.first(), &error));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QVERIFY(!QFileInfo::exists(destLibrary + QStringLiteral("/steamapps/appmanifest_12345.acf")));
+    QVERIFY(!QFileInfo::exists(destLibrary + QStringLiteral("/steamapps/common/Test Game")));
+    QVERIFY(QFileInfo::exists(sourceLibrary + QStringLiteral("/steamapps/appmanifest_12345.acf")));
+}
+
+void MoverTest::revalidateRejectsChangedMount()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    qputenv("SLM_STATE_DIR", (temp.path() + QStringLiteral("/state")).toUtf8());
+    const QString steamRoot = testutil::makeFixtureSteam(temp);
+    const QString destLibrary = temp.path() + QStringLiteral("/libraryB");
+    const MountTable mounts = MountTable::fromMounts({testutil::makeMount(temp.path())});
+    QString error;
+    SteamScan scan = scanSteam({steamRoot, InstallKind::Native}, mounts, &error);
+    QVERIFY(error.isEmpty());
+    MoveOptions options;
+    options.allowNtfsNative = true;
+    MovePlan plan = MovePlanner::plan(scan, 12345, destLibrary, options, mounts, &error);
+    QVERIFY(error.isEmpty());
+    QVERIFY(!plan.hasBlocker());
+    plan.snapshot.destinationDevice++;
+    QVERIFY(!MovePlanner::revalidate(plan, mounts, &error));
+    QVERIFY(error.contains(QStringLiteral("filesystem")));
+}
+
+void MoverTest::keepSourceBackup()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    qputenv("SLM_STATE_DIR", (temp.path() + QStringLiteral("/state")).toUtf8());
+    const QString steamRoot = testutil::makeFixtureSteam(temp);
+    const QString sourceLibrary = temp.path() + QStringLiteral("/libraryA");
+    const QString destLibrary = temp.path() + QStringLiteral("/libraryB");
+    const MountTable mounts = MountTable::fromMounts({testutil::makeMount(temp.path())});
+    QString error;
+    SteamScan scan = scanSteam({steamRoot, InstallKind::Native}, mounts, &error);
+    QVERIFY(error.isEmpty());
+    MoveOptions options;
+    options.allowNtfsNative = true;
+    options.keepSourceBackup = true;
+    MovePlan plan = MovePlanner::plan(scan, 12345, destLibrary, options, mounts, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QVERIFY2(!plan.hasBlocker(), qPrintable(plan.blockers().isEmpty()
+                                                ? QString()
+                                                : plan.blockers().first().detail));
+
+    MoveExecutor executor;
+    const MoveResult result = executor.execute(plan, mounts);
+    QVERIFY2(result.ok, qPrintable(result.error));
+    QVERIFY(result.cleanupErrors.isEmpty());
+    QVERIFY(result.backupPaths.size() >= 2);
+    QVERIFY(QFileInfo::exists(destLibrary + QStringLiteral("/steamapps/common/Test Game/game.dat")));
+    QVERIFY(QFileInfo::exists(destLibrary + QStringLiteral("/steamapps/appmanifest_12345.acf")));
+    QVERIFY(!QFileInfo::exists(sourceLibrary + QStringLiteral("/steamapps/common/Test Game")));
+    const QStringList gameBackups =
+        QDir(sourceLibrary + QStringLiteral("/steamapps/common"))
+            .entryList({QStringLiteral(".slm-backup-*")}, QDir::Dirs | QDir::Hidden);
+    QVERIFY(!gameBackups.isEmpty());
+    QVERIFY(QFileInfo::exists(sourceLibrary + QStringLiteral("/steamapps/common/")
+                              + gameBackups.first() + QStringLiteral("/game.dat")));
+    QVERIFY(!QFileInfo::exists(sourceLibrary + QStringLiteral("/steamapps/appmanifest_12345.acf")));
+}
+
+void MoverTest::compatToolMetadata()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    qputenv("SLM_STATE_DIR", (temp.path() + QStringLiteral("/state")).toUtf8());
+    const QString steamRoot = testutil::makeFixtureSteam(temp);
+    const QString config = QStringLiteral(
+        "\"InstallConfigStore\"\n"
+        "{\n"
+        "\t\"Software\"\n"
+        "\t{\n"
+        "\t\t\"Valve\"\n"
+        "\t\t{\n"
+        "\t\t\t\"Steam\"\n"
+        "\t\t\t{\n"
+        "\t\t\t\t\"CompatToolMapping\"\n"
+        "\t\t\t\t{\n"
+        "\t\t\t\t\t\"12345\"\n"
+        "\t\t\t\t\t{\n"
+        "\t\t\t\t\t\t\"name\"\t\t\"proton_9\"\n"
+        "\t\t\t\t\t}\n"
+        "\t\t\t\t}\n"
+        "\t\t\t}\n"
+        "\t\t}\n"
+        "\t}\n"
+        "}\n");
+    QVERIFY(testutil::writeFile(steamRoot + QStringLiteral("/config/config.vdf"),
+                                config.toUtf8()));
+    const MountTable mounts = MountTable::fromMounts({testutil::makeMount(temp.path())});
+    QString error;
+    const SteamScan scan = scanSteam({steamRoot, InstallKind::Native}, mounts, &error);
+    QVERIFY(error.isEmpty());
+    QCOMPARE(scan.games.size(), 1);
+    QCOMPARE(scan.games.first().runtime, RuntimeKind::Proton);
+    QCOMPARE(scan.games.first().protonVersion, QStringLiteral("Proton 9.0"));
+}
+
+void MoverTest::pauseAndResumeCopy()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    const QString source = temp.path() + QStringLiteral("/source");
+    const QString destination = temp.path() + QStringLiteral("/destination");
+    QDir().mkpath(source);
+    QVERIFY(testutil::writeFile(source + QStringLiteral("/data.bin"), QByteArray(8 * 1024 * 1024, 'p')));
+
+    std::atomic_bool paused{true};
+    std::atomic_bool cancelled{false};
+    bool ok = false;
+    QString error;
+    std::thread worker([&]() {
+        ok = CopyEngine::copyTree(
+            source, destination, {},
+            [&]() { return cancelled.load(std::memory_order_relaxed); }, nullptr, &error,
+            [&]() { return paused.load(std::memory_order_relaxed); });
+    });
+    QTest::qWait(250);
+    QVERIFY2(!QFileInfo::exists(destination + QStringLiteral("/data.bin")),
+             "copy started while paused");
+    paused.store(false, std::memory_order_relaxed);
+    worker.join();
+    QVERIFY2(ok, qPrintable(error));
+    QVERIFY(QFileInfo::exists(destination + QStringLiteral("/data.bin")));
+}
+
+void MoverTest::cancellationInterruptsVerification()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    const QString source = temp.path() + QStringLiteral("/source");
+    const QString destination = temp.path() + QStringLiteral("/destination");
+    QDir().mkpath(source);
+    QVERIFY(testutil::writeFile(source + QStringLiteral("/game.bin"),
+                                QByteArray(2 * 1024 * 1024, 'V')));
+    QString error;
+    QVERIFY2(CopyEngine::copyTree(source, destination, {}, {}, nullptr, &error), qPrintable(error));
+    std::atomic_bool cancelled{true};
+    QVERIFY(!CopyEngine::verifyTree(source, destination, true, &error,
+                                    [&]() { return cancelled.load(std::memory_order_relaxed); }));
+    QVERIFY(error.contains(QStringLiteral("Cancelled"), Qt::CaseInsensitive));
+}
+
+void MoverTest::sequentialBatchRefreshesVdf()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    qputenv("SLM_STATE_DIR", (temp.path() + QStringLiteral("/state")).toUtf8());
+    const QString steamRoot = testutil::makeFixtureSteam(temp);
+    const QString sourceLibrary = temp.path() + QStringLiteral("/libraryA");
+    const QString destLibrary = temp.path() + QStringLiteral("/libraryB");
+    // Add a second game and manifest to the source library.
+    QDir().mkpath(sourceLibrary + QStringLiteral("/steamapps/common/Test Game 2"));
+    QVERIFY(testutil::writeFile(sourceLibrary + QStringLiteral("/steamapps/common/Test Game 2/game.dat"),
+                                QByteArray(2048, 'B')));
+    QVERIFY(testutil::writeFile(sourceLibrary + QStringLiteral("/steamapps/appmanifest_12346.acf"),
+                                testutil::manifestText(12346, "Test Game 2", "Test Game 2", 4, 2048)
+                                    .toUtf8()));
+
+    const MountTable mounts = MountTable::fromMounts({testutil::makeMount(temp.path())});
+    QString error;
+    SteamScan scan = scanSteam({steamRoot, InstallKind::Native}, mounts, &error);
+    QVERIFY(error.isEmpty());
+    QVERIFY(scan.findGame(12345));
+    QVERIFY(scan.findGame(12346));
+
+    MoveOptions options;
+    options.allowNtfsNative = true;
+    MovePlan first = MovePlanner::plan(scan, 12345, destLibrary, options, mounts, &error);
+    QVERIFY(error.isEmpty());
+    QVERIFY(!first.hasBlocker());
+    MoveExecutor executor;
+    MoveResult result = executor.execute(first, mounts);
+    QVERIFY2(result.ok, qPrintable(result.error));
+
+    MovePlan second = MovePlanner::plan(scan, 12346, destLibrary, options, mounts, &error);
+    QVERIFY(error.isEmpty());
+    QVERIFY(!second.hasBlocker());
+    QVERIFY(MovePlanner::refreshVdfSnapshot(second, &error));
+    result = executor.execute(second, mounts);
+    QVERIFY2(result.ok, qPrintable(result.error));
+    QVERIFY(QFileInfo::exists(destLibrary + QStringLiteral("/steamapps/common/Test Game 2/game.dat")));
+    QVERIFY(QFileInfo::exists(destLibrary + QStringLiteral("/steamapps/appmanifest_12346.acf")));
+    QVERIFY(!QFileInfo::exists(sourceLibrary + QStringLiteral("/steamapps/appmanifest_12346.acf")));
+}
+
+void MoverTest::ntfsInvalidNameBlocks()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    qputenv("SLM_STATE_DIR", (temp.path() + QStringLiteral("/state")).toUtf8());
+    const QString steamRoot = testutil::makeFixtureSteam(temp);
+    const QString sourceLibrary = temp.path() + QStringLiteral("/libraryA");
+    const QString destLibrary = temp.path() + QStringLiteral("/libraryB");
+    QVERIFY(testutil::writeFile(sourceLibrary + QStringLiteral("/steamapps/common/Test Game/bad:name"),
+                                QByteArray("bad")));
+
+    MountInfo rootMount = testutil::makeMount(temp.path());
+    MountInfo destMount = testutil::makeMount(destLibrary, QStringLiteral("ntfs3"), FsClass::Ntfs);
+    const MountTable mounts = MountTable::fromMounts({rootMount, destMount});
+    QString error;
+    SteamScan scan = scanSteam({steamRoot, InstallKind::Native}, mounts, &error);
+    QVERIFY(error.isEmpty());
+
+    MoveOptions options;
+    options.allowNtfsNative = true;
+    const MovePlan plan = MovePlanner::plan(scan, 12345, destLibrary, options, mounts, &error);
+    QVERIFY(error.isEmpty());
+    bool found = false;
+    for (const Issue &issue : plan.issues) {
+        if (issue.code == QStringLiteral("ntfs-invalid-name"))
+            found = true;
+    }
+    QVERIFY(found);
+}
+
+void MoverTest::ntfsAcknowledged()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    qputenv("SLM_STATE_DIR", (temp.path() + QStringLiteral("/state")).toUtf8());
+    const QString steamRoot = testutil::makeFixtureSteam(temp);
+    const QString sourceLibrary = temp.path() + QStringLiteral("/libraryA");
+    const QString destLibrary = temp.path() + QStringLiteral("/libraryB");
+    MountInfo rootMount = testutil::makeMount(temp.path());
+    MountInfo destMount = testutil::makeMount(destLibrary, QStringLiteral("ntfs3"), FsClass::Ntfs);
+    const MountTable mounts = MountTable::fromMounts({rootMount, destMount});
+    QString error;
+    SteamScan scan = scanSteam({steamRoot, InstallKind::Native}, mounts, &error);
+    QVERIFY(error.isEmpty());
+
+    MoveOptions options;
+    options.allowNtfsNative = false;
+    const MovePlan unacknowledged = MovePlanner::plan(scan, 12345, destLibrary, options, mounts, &error);
+    QVERIFY(unacknowledged.hasBlocker());
+    bool ack = false;
+    for (const Issue &issue : unacknowledged.issues) {
+        if (issue.code == QStringLiteral("windows-filesystem-ack"))
+            ack = true;
+    }
+    QVERIFY(ack);
+
+    options.allowNtfsNative = true;
+    const MovePlan acknowledged = MovePlanner::plan(scan, 12345, destLibrary, options, mounts, &error);
+    QVERIFY(error.isEmpty());
+    QVERIFY(!acknowledged.hasBlocker());
+    Q_UNUSED(sourceLibrary);
+}
+
+QTEST_GUILESS_MAIN(MoverTest)
+#include "tst_mover.moc"

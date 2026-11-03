@@ -1,0 +1,36 @@
+# Maintainer: Nasir A <evilleader91@gmail.com>
+pkgname=steam-library-mover-git
+pkgver=r1.0.0
+pkgrel=1
+pkgdesc="Move installed Steam games between Steam libraries safely (development)"
+arch=('x86_64')
+url="https://github.com/NasirA1991/steam-library-mover"
+license=('GPL-3.0-or-later')
+depends=('qt6-base' 'qt6-svg' 'hicolor-icon-theme')
+makedepends=('cmake' 'ninja' 'git')
+optdepends=('steam: native Steam client'
+            'flatpak: Flatpak Steam client')
+source=("$pkgname::git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "$pkgname"
+    printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+    cmake -S "$pkgname" -B build \
+        -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr
+    cmake --build build
+}
+
+check() {
+    ctest --test-dir build --output-on-failure
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install build
+    install -Dm644 "$pkgname/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

@@ -1,0 +1,33 @@
+app-id: io.github.nasira1991.SteamLibraryMover
+runtime: org.kde.Platform
+runtime-version: '6.11'
+sdk: org.kde.Sdk
+command: steam-library-mover
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --share=network
+  - --filesystem=home
+  - --filesystem=/mnt
+  - --filesystem=/media
+  - --filesystem=/run/media
+  - --filesystem=~/.var/app/com.valvesoftware.Steam
+  - --talk-name=org.freedesktop.Flatpak
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.ScreenSaver
+  - --env=QT_QPA_PLATFORMTHEME=KDE
+modules:
+  - name: steam-library-mover
+    buildsystem: cmake-ninja
+    rename-desktop-file: steam-library-mover.desktop
+    rename-appdata-file: io.github.nasira1991.SteamLibraryMover.metainfo.xml
+    rename-icon: steam-library-mover
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_TESTING=OFF
+    sources:
+      # For Flathub, replace this with the tagged archive/git source.
+      - type: dir
+        path: ../..

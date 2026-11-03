@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.nasira1991.SteamLibraryMover</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Steam Library Mover</name>
+  <summary>Move installed Steam games between Steam libraries safely</summary>
+  <developer id="io.github.nasira1991">
+    <name>Nasir A</name>
+  </developer>
+
+  <description>
+    <p>
+      Steam Library Mover relocates installed Steam games between Steam libraries without
+      using Steam's own “Move install folder” operation. It copies the game, its app manifest,
+      the Proton prefix, shader cache and Workshop data, verifies the destination, updates
+      libraryfolders.vdf atomically, and only then removes the source.
+    </p>
+    <p>
+      It is designed for Linux libraries stored on NTFS or other Windows-compatible filesystems,
+      where Proton prefixes can be corrupted by Windows-invalid filenames. The tool understands
+      shared compatdata symlinks and never tries to move a Proton prefix onto itself.
+    </p>
+    <p>
+      Steam must be completely closed while a move runs. Games can be selected in batches,
+      dragged onto a destination drive, paused and resumed. Every operation is journaled, can be
+      inspected in the Recovery dialog, and is refused when the game is updating, a prefix is
+      already in use, a destination conflict exists, or the filesystem cannot safely store the
+      game. An optional backup mode keeps the source payload in hidden folders. Library Health
+      finds stale locks, orphaned data and broken compatdata links, and can quarantine stale
+      lock/temp files without deleting them. NTFS Doctor clearly reports whether each NTFS library
+      already has a valid shared compatdata symlink. Reflink-capable filesystems use an instant,
+      verified clone path. A compact layout, sortable columns, drive-type icons, staged progress with
+      speed/ETA and light/dark themes are included.
+    </p>
+    <p>
+      The application is not affiliated with Valve Corporation. Steam is a trademark of Valve
+      Corporation.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">steam-library-mover.desktop</launchable>
+  <url type="homepage">https://github.com/NasirA1991/steam-library-mover</url>
+  <url type="bugtracker">https://github.com/NasirA1991/steam-library-mover/issues</url>
+  <url type="vcs-browser">https://github.com/NasirA1991/steam-library-mover</url>
+
+  <categories>
+    <category>Game</category>
+    <category>Utility</category>
+  </categories>
+
+  <keywords>
+    <keyword>Steam</keyword>
+    <keyword>library</keyword>
+    <keyword>move</keyword>
+    <keyword>NTFS</keyword>
+    <keyword>Proton</keyword>
+    <keyword>migration</keyword>
+  </keywords>
+
+  <releases>
+    <release version="0.1.0" date="2026-11-03">
+      <description>
+        <p>Initial development snapshot: journaled game moves, NTFS preflight checks, shared compatdata handling, CLI and Qt desktop UI.</p>
+      </description>
+    </release>
+  </releases>
+
+  <content_rating type="oars-1.1"/>
+</component>

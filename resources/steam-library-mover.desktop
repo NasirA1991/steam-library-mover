@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Steam Library Mover
+GenericName=Steam Game Mover
+Comment=Move installed Steam games between Steam libraries safely
+Exec=steam-library-mover
+Icon=steam-library-mover
+Terminal=false
+Categories=Utility;
+Keywords=Steam;Library;Game;Move;Migration;NTFS;Proton;
+StartupNotify=true
+StartupWMClass=steam-library-mover
+X-KDE-FormFactor=desktop

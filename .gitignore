@@ -1,0 +1,29 @@
+# Build and tooling
+build/
+build-*/
+build-appimage/
+build-flatpak/
+AppDir/
+.tools/
+.compile_commands.json
+compile_commands.json
+*.user
+*.swp
+
+# Local release/design artifacts
+.release-artifacts/
+.gh-config/
+.ssh/
+.mockups/
+.pkgtest/
+goals-review.png
+review-*.png
+selected-*.png
+progress-*.png
+tst_gui.png
+*.AppImage
+Steam_Library_Mover*.AppImage
+repo/
+
+# Test output
+tst_gui.png

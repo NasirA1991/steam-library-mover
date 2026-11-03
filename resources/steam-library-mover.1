@@ -1,0 +1,169 @@
+.TH STEAM-LIBRARY-MOVER 1 "2026" "steam-library-mover 0.1.0" "User Commands"
+.SH NAME
+steam-library-mover \- move installed Steam games between libraries safely
+.SH SYNOPSIS
+.B steam-library-mover
+.RI [ options ]
+.br
+.B steam-library-mover-cli
+.RI [ options ]
+.I command
+.SH DESCRIPTION
+.B steam-library-mover
+is a Qt/KDE desktop application that moves an installed Steam game from one
+registered Steam library to another without using Steam's own
+\(lqMove install folder\(rq operation.
+.PP
+Steam must be completely closed while a move runs. The mover copies and
+verifies the payload, prefix, shader cache and Workshop data, atomically writes
+the destination manifest and updates the existing game entries in
+.B libraryfolders.vdf
+with a backup. Every operation is journaled under
+.I ~/.local/state/steam-library-mover/
+so it can be inspected or rolled back with the Recovery dialog.
+.PP
+The application never creates or registers a new Steam library and never adds
+drive entries to Steam's database.
+.SH OPTIONS
+.TP
+.B \-\-help
+Show command help.
+.TP
+.B \-\-version
+Show version.
+.TP
+.BI \-\-steam-root " path"
+Use an explicit Steam installation root.
+.TP
+.B \-\-json
+Emit machine-readable JSON where supported.
+.TP
+.BI \-\-appid " id"
+Steam application id for \fBplan\fP or \fBmove\fP.
+.TP
+.BI \-\-to " path"
+Destination Steam library path.
+.TP
+.B \-\-dry-run
+Plan without modifying files.
+.TP
+.B \-\-yes
+Confirm a move or \fBhealth \-\-apply\fP.
+.TP
+.BI \-\-verify " quick|full"
+Verification mode.
+.TP
+.B \-\-no-shadercache
+Do not move shader cache.
+.TP
+.B \-\-no-workshop
+Do not move Workshop content and its manifest.
+.TP
+.B \-\-allow-ntfs
+Acknowledge Windows-filesystem risks, including native Linux games.
+.TP
+.B \-\-quit-steam
+Ask the selected Steam client to shut down before planning.
+.TP
+.B \-\-keep-source
+Register the game at the destination but leave the source payload, prefix,
+shader cache and Workshop data in hidden
+.B .slm-backup-*
+folders. Source space is not freed until those folders are removed manually.
+.TP
+.BI \-\-library " path"
+Steam library path for \fBdoctor\fP or \fBfix-compatdata\fP.
+.TP
+.B \-\-apply
+Apply doctor changes, or quarantine safe lock/temp files for \fBhealth\fP.
+.TP
+.B \-\-list
+List unfinished operations for \fBrecover\fP.
+.TP
+.BI \-\-rollback " opid"
+Roll back an unfinished operation.
+.SH COMMANDS
+.TP
+.B list
+List libraries and installed applications.
+.TP
+.B plan
+Build a move plan and show blockers and the storage projection without
+modifying anything.
+.TP
+.B move
+Execute a planned move. Requires \fB\-\-yes\fP.
+.TP
+.B health
+Scan for stale lock files, stale manifest temporary files, orphaned game
+folders, prefixes, shader cache and Workshop data, duplicate appids, broken
+compatdata links and source backups. With \fB\-\-apply \-\-yes\fP, quarantine
+safe lock/temp files into hidden
+.B .slm-quarantine
+folders. Quarantine renames, never deletes, and is refused while Steam or a
+Proton/Wine game is running.
+.TP
+.B doctor
+Inspect NTFS/exFAT compatibility and Proton prefix placement.
+.TP
+.B fix-compatdata
+Configure a compatdata symlink for an NTFS library.
+.TP
+.B recover
+List or roll back unfinished operations.
+.SH GUI
+The desktop application adds:
+.IP \(bu 2
+friendly drive names with full paths on hover;
+.IP \(bu 2
+storage usage bars and batch free-space projections;
+.IP \(bu 2
+multi-select batch moves and drag-and-drop onto a library;
+.IP \(bu 2
+pause/resume and cancel-queue controls;
+.IP \(bu 2
+Proton/Native detection, compat-tool version, last played, build ID and size
+breakdown;
+.IP \(bu 2
+Ready/Blocked/Warnings/Proton/Native/Auto filters and sorting;
+.IP \(bu 2
+Library Health with safe quarantine of stale lock/temp files;
+.IP \(bu 2
+System, Light and Dark themes;
+.IP \(bu 2
+sleep inhibition, desktop completion notifications and an optional Start Steam
+action.
+.SH ENVIRONMENT
+.TP
+.B SLM_STEAM_ROOT
+Override the detected Steam root.
+.TP
+.B SLM_STATE_DIR
+Directory for journals, logs and backup metadata.
+.TP
+.B SLM_CACHE_DIR
+Directory for the display-only startup scan cache.
+.TP
+.B SLM_ARTWORK_DIR
+Local box-art cache directory.
+.TP
+.B SLM_DISABLE_ARTWORK
+Disable artwork fetching.
+.TP
+.B SLM_THEME
+Force \fBsystem\fP, \fBlight\fP or \fBdark\fP for the current run.
+.SH FILES
+.TP
+.I ~/.local/state/steam-library-mover/
+Journals, logs, backups and quarantine metadata.
+.TP
+.I ~/.cache/steam-library-mover/artwork/
+Cached box art.
+.SH SEE ALSO
+.BR steam (1)
+.PP
+Project documentation: README.md, docs/SAFETY.md, docs/NTFS.md and
+docs/TESTING.md.
+.SH AUTHOR
+Steam Library Mover contributors. GPL-3.0-or-later. Not affiliated with Valve
+Corporation. Steam is a trademark of Valve Corporation.
