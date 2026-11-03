@@ -65,15 +65,12 @@ jobs:
           chmod 600 ~/.ssh/aur_key
           printf '%s\n' "$AUR_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
-          eval "$(ssh-agent -s)"
-          ssh-add ~/.ssh/aur_key
-          ssh-keyscan -T 15 aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null || true
-          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> "$GITHUB_ENV"
       - name: Push recipe
         run: |
           set -eu
           git config --global user.name "NasirA1991"
           git config --global user.email "evilleader91@gmail.com"
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur_key -o IdentitiesOnly=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts"
           remote="ssh://aur@aur.archlinux.org/steam-library-mover.git"
           if git clone "$remote" aur-repo 2>/dev/null; then
             cd aur-repo
