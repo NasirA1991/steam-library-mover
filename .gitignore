@@ -31,3 +31,6 @@ tst_gui.png
 # README screenshots
 !docs/screenshots/
 !docs/screenshots/*.png
+
+# AUR deploy key
+.aur/

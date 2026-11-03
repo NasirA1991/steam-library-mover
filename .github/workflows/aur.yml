@@ -1,0 +1,93 @@
+name: AUR publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish to AUR
+        required: true
+        default: v0.1.0
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare AUR recipe
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    timeout-minutes: 20
+    steps:
+      - name: Install packaging tools
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git pacman-contrib
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+      - name: Update version, checksum and SRCINFO
+        run: |
+          set -eu
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          version="${tag#v}"
+          cd packaging/aur
+          sed -i "s/^pkgver=.*/pkgver=${version}/" PKGBUILD
+          updpkgsums
+          makepkg --printsrcinfo > .SRCINFO
+          mkdir -p "$GITHUB_WORKSPACE/aur-artifact"
+          cp PKGBUILD .SRCINFO "$GITHUB_WORKSPACE/aur-artifact/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aur-recipe
+          path: aur-artifact/
+          if-no-files-found: error
+
+  publish:
+    name: Push to AUR
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: aur-recipe
+          path: aur-recipe
+      - name: Configure SSH
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          AUR_KNOWN_HOSTS: ${{ secrets.AUR_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur_key
+          chmod 600 ~/.ssh/aur_key
+          printf '%s\n' "$AUR_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/aur_key
+          ssh-keyscan -T 15 aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null || true
+          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> "$GITHUB_ENV"
+      - name: Push recipe
+        run: |
+          set -eu
+          git config --global user.name "NasirA1991"
+          git config --global user.email "evilleader91@gmail.com"
+          remote="ssh://aur@aur.archlinux.org/steam-library-mover.git"
+          if git clone "$remote" aur-repo 2>/dev/null; then
+            cd aur-repo
+          else
+            mkdir aur-repo
+            cd aur-repo
+            git init -b master
+            git remote add origin "$remote"
+          fi
+          cp ../aur-recipe/PKGBUILD ../aur-recipe/.SRCINFO .
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "AUR recipe is already up to date."
+            exit 0
+          fi
+          git commit -m "Update steam-library-mover to ${{ github.event.inputs.tag || github.ref_name }}"
+          git push origin master
