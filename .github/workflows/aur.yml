@@ -42,7 +42,8 @@ jobs:
             sed -i 's/^pkgver=.*/pkgver=$version/' PKGBUILD
             updpkgsums
             makepkg --printsrcinfo > .SRCINFO
-            cp PKGBUILD .SRCINFO '$GITHUB_WORKSPACE/aur-artifact/'
+            cp PKGBUILD '$GITHUB_WORKSPACE/aur-artifact/'
+            cp .SRCINFO '$GITHUB_WORKSPACE/aur-artifact/SRCINFO'
           "
       - uses: actions/upload-artifact@v4
         with:
@@ -86,7 +87,8 @@ jobs:
             git init -b master
             git remote add origin "$remote"
           fi
-          cp ../aur-recipe/PKGBUILD ../aur-recipe/.SRCINFO .
+          cp ../aur-recipe/PKGBUILD .
+          cp ../aur-recipe/SRCINFO .SRCINFO
           git add PKGBUILD .SRCINFO
           if git diff --cached --quiet; then
             echo "AUR recipe is already up to date."
