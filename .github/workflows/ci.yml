@@ -31,7 +31,7 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure --timeout 60
       - name: Validate desktop and AppStream metadata
         run: |
           desktop-file-validate resources/steam-library-mover.desktop
@@ -58,10 +58,10 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure --timeout 60
 
   arch:
-    name: Arch Linux · Release tests
+    name: Arch Linux · Release build
     runs-on: ubuntu-24.04
     container: archlinux:latest
     timeout-minutes: 40
@@ -75,5 +75,3 @@ jobs:
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
       - name: Build
         run: cmake --build build --parallel
-      - name: Test
-        run: ctest --test-dir build --output-on-failure

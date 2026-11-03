@@ -87,7 +87,7 @@ Flathub submission also needs a tagged source (not `type: dir`), screenshots in 
 
 - GCC Debug build + full test suite + metadata validation on Ubuntu 24.04.
 - Clang Release build + tests.
-- Arch Linux Release build + tests.
+- Arch Linux Release build (tests run in the GCC/Clang jobs).
 
 ## Release checklist
 
