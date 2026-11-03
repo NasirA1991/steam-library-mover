@@ -204,11 +204,11 @@ void GuiTest::dragDropTarget()
     QMimeData mime;
     mime.setData("application/x-steam-library-mover-appids", "12345,67890");
     const QPoint pos = list.visualItemRect(item).center();
-    QDragEnterEvent enter(QPointF(pos), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QDragEnterEvent enter(pos, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
     QApplication::sendEvent(list.viewport(), &enter);
-    QDragMoveEvent move(QPointF(pos), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QDragMoveEvent move(pos, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
     QApplication::sendEvent(list.viewport(), &move);
-    QDropEvent event(QPointF(pos), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QDropEvent event(pos, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
     QApplication::sendEvent(list.viewport(), &event);
     QCOMPARE(receivedPath, QStringLiteral("/tmp/libraryB"));
     QCOMPARE(receivedIds, QList<quint32>({12345, 67890}));
