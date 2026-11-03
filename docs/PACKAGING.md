@@ -63,12 +63,13 @@ namcap *.pkg.tar.zst
 Publishing to AUR is a separate operation and requires an AUR account/SSH key; GitHub Actions only
 builds and validates the package.
 
-## Flatpak (gated, not shipped)
+## Flatpak (experimental Actions artifact)
 
-The Flatpak manifest remains in the repository for future work, but it is manual-only and is not part of a release. A
-confined app cannot reliably inspect host Steam/Proton/Wine processes until `flatpak-spawn --host`
-detection and shutdown are validated in a real sandbox. Until then, AppImage and Arch/AUR are the
-supported release artifacts.
+The Flatpak manifest remains in the repository for future work. GitHub Actions builds it from
+source as an **experimental** artifact, but it is not attached to a release. A confined app cannot
+reliably inspect host Steam/Proton/Wine processes until `flatpak-spawn --host` detection and shutdown
+are validated in a real sandbox. Until then, AppImage and Arch/AUR are the supported release
+artifacts.
 
 If that gate is passed:
 
@@ -97,6 +98,6 @@ Flathub submission also needs a tagged source (not `type: dir`), screenshots in 
 - [ ] AppImage extracted and launched.
 - [ ] Arch package installed and launched.
 - [ ] AUR checksums regenerated for the stable recipe.
-- [ ] Flatpak gate explicitly recorded as not shipped.
+- [ ] Flatpak gate explicitly recorded; only an experimental Actions artifact is produced.
 - [ ] `SHA256SUMS` and release notes attached.
 - [ ] No personal paths, tokens, build trees or screenshots containing private data are committed.

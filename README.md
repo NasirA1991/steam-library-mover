@@ -38,9 +38,26 @@ Published artifacts are attached to [GitHub Releases](https://github.com/NasirA1
 | `steam-library-mover-*.pkg.tar.zst` | Arch Linux / CachyOS manual install |
 | `steam-library-mover-*.tar.gz` | Building from source |
 
-The AUR recipe is in [`packaging/aur`](packaging/aur). A Flatpak build is **not shipped** yet;
-host Steam/Proton process detection has not been validated inside the sandbox. Do not install a
-Flatpak build expecting it to be safe for real moves.
+The AUR recipe is in [`packaging/aur`](packaging/aur). A Flatpak bundle is **built by GitHub
+Actions as an experimental artifact**, but is not attached to the release: host Steam/Proton
+process detection inside the sandbox has not been validated. Do not install that artifact
+expecting it to be safe for real moves.
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/main-light.png" alt="Steam Library Mover main window" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/review-dark.png" alt="Transfer review with blockers" width="46%">
+  &nbsp;
+  <img src="docs/screenshots/progress-dark.png" alt="Transfer progress" width="46%">
+</p>
+
+<p align="center"><sub>Captured from the development build against read-only test libraries; the
+warnings and blockers shown are expected. The main screenshot is cropped to remove the local
+Steam path.</sub></p>
 
 ## Why this exists
 
