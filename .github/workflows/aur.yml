@@ -32,12 +32,18 @@ jobs:
           set -eu
           tag="${{ github.event.inputs.tag || github.ref_name }}"
           version="${tag#v}"
-          cd packaging/aur
-          sed -i "s/^pkgver=.*/pkgver=${version}/" PKGBUILD
-          updpkgsums
-          makepkg --printsrcinfo > .SRCINFO
-          mkdir -p "$GITHUB_WORKSPACE/aur-artifact"
-          cp PKGBUILD .SRCINFO "$GITHUB_WORKSPACE/aur-artifact/"
+          useradd --create-home builder
+          chown -R builder:builder .
+          mkdir -p aur-artifact
+          chown builder:builder aur-artifact
+          su builder -c "
+            set -eu
+            cd '$GITHUB_WORKSPACE/packaging/aur'
+            sed -i 's/^pkgver=.*/pkgver=$version/' PKGBUILD
+            updpkgsums
+            makepkg --printsrcinfo > .SRCINFO
+            cp PKGBUILD .SRCINFO '$GITHUB_WORKSPACE/aur-artifact/'
+          "
       - uses: actions/upload-artifact@v4
         with:
           name: aur-recipe
