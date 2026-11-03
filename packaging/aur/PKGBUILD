@@ -11,7 +11,7 @@ makedepends=('cmake' 'ninja')
 optdepends=('steam: native Steam client'
             'flatpak: Flatpak Steam client')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP') # CI regenerates this with updpkgsums; fill it before publishing to AUR.
+sha256sums=('12be4ca36203fc01de4671478ed4dcc50be7c86737b015a3a4a369de56b55fa1')
 
 build() {
     cmake -S "$pkgname-$pkgver" -B build \
