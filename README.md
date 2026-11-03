@@ -147,11 +147,12 @@ Recovery dialog.
 - Native Linux games on NTFS/exFAT are not officially supported by Steam; the app warns but cannot
   make NTFS store Unix executable permissions.
 - Snap Steam is detected but unsupported.
-- A Flatpak build is provided as packaging material, but is **not tested/shipped** until host process
-  detection and permissions are validated. See [docs/PACKAGING.md](docs/PACKAGING.md).
+- A Flatpak bundle is built as an **experimental GitHub Actions artifact**, but is not a supported
+  release download until host process detection and permissions are validated. See
+  [docs/PACKAGING.md](docs/PACKAGING.md).
 - Flatpak Steam libraries stored in `~/.var/app/com.valvesoftware.Steam` need the corresponding
   filesystem permission in a Flatpak build.
-- Release artifacts are built by GitHub Actions; the Flatpak workflow remains deliberately gated.
+- AppImage, Arch package and source archives are supported release artifacts. Flatpak is an experimental Actions artifact only.
 
 ## Build
 
