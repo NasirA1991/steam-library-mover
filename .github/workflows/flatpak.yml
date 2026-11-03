@@ -1,13 +1,22 @@
-name: Flatpak (manual, gated)
+name: Flatpak build
 
-# Deliberately manual. Flatpak cannot reliably inspect host Steam/Proton
-# processes until the host-spawn path is validated in a real sandbox.
+# Builds the Flatpak bundle from the current source tree. This is an
+# experimental artifact, not a supported release download: host Steam/Proton
+# process detection inside the sandbox is still gated.
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
 
 jobs:
-  bundle:
+  flatpak:
+    name: Flatpak bundle
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install Flatpak tooling
@@ -16,7 +25,7 @@ jobs:
           sudo apt-get install -y flatpak flatpak-builder
           flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           flatpak install -y flathub org.kde.Platform//6.11 org.kde.Sdk//6.11
-      - name: Build Flatpak
+      - name: Build Flatpak from source
         run: |
           flatpak-builder --repo=repo --force-clean build-flatpak \
             packaging/flatpak/io.github.nasira1991.SteamLibraryMover.yml
@@ -24,7 +33,13 @@ jobs:
         run: |
           flatpak build-bundle repo SteamLibraryMover.flatpak \
             io.github.nasira1991.SteamLibraryMover
+      - name: Lint metadata
+        run: |
+          sudo apt-get install -y appstream
+          appstreamcli validate --no-net \
+            resources/io.github.nasira1991.SteamLibraryMover.metainfo.xml
       - uses: actions/upload-artifact@v4
         with:
-          name: flatpak
+          name: flatpak-experimental
           path: SteamLibraryMover.flatpak
+          if-no-files-found: error
