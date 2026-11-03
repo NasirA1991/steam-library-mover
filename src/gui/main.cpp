@@ -17,7 +17,7 @@ int main(int argc, char **argv)
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("steam-library-mover"));
     QApplication::setApplicationDisplayName(QStringLiteral("Steam Library Mover"));
-    QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+    QApplication::setApplicationVersion(QStringLiteral("0.1.1"));
     QApplication::setOrganizationName(QStringLiteral("SteamLibraryMover"));
     QApplication::setDesktopFileName(QStringLiteral("steam-library-mover"));
     ui::applyTheme(ui::themeFromSettings());

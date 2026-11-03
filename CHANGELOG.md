@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1 — 2026-11-04
+
+Packaging and release automation release. No changes to the move engine or desktop UI.
+
+- GitHub Actions release workflow builds and publishes AppImage, Arch package and source archive.
+- Added README screenshots and build/install documentation.
+- Added experimental Flatpak source build as a GitHub Actions artifact.
+- Added automatic AUR publishing on `v*` tags.
+- Fixed the GUI test race on slow/headless startup and bounded test runtimes.
+
 ## 0.1.0 — 2026-11-03
 
 Initial development snapshot.

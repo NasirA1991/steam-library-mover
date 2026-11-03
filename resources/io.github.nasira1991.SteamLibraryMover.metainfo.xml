@@ -59,6 +59,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.1" date="2026-11-04">
+      <description>
+        <p>Packaging and release automation update: AppImage, Arch package, Flatpak build artifact, AUR publishing workflow and README screenshots. The desktop application and move engine are unchanged from 0.1.0.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-11-03">
       <description>
         <p>Initial development snapshot: journaled game moves, NTFS preflight checks, shared compatdata handling, CLI and Qt desktop UI.</p>

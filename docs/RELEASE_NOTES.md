@@ -1,7 +1,9 @@
-# Steam Library Mover v0.1.0 — public alpha
+# Steam Library Mover v0.1.1 — public alpha
 
 **This is an alpha release of a tool that moves real game files. Read the safety notes and keep an
 independent backup of irreplaceable data.**
+
+This is a packaging/release-automation update. The desktop application and move engine are unchanged from 0.1.0; see the 0.1.0 notes for the file-move behavior.
 
 ## Highlights
 
