@@ -39,6 +39,7 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
+    bool isScanning() const { return m_scanInProgress || !m_scanThread.isNull(); }
 
 protected:
     void closeEvent(QCloseEvent *event) override;

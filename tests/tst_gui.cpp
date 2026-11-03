@@ -53,6 +53,7 @@ void GuiTest::startupAndSelection()
     QTRY_VERIFY_WITH_TIMEOUT(table->model()
                                  && table->model()->rowCount() > 0,
                              8000);
+    QTRY_VERIFY_WITH_TIMEOUT(!window.isScanning(), 8000);
     QCOMPARE(table->model()->rowCount(), 1);
     auto *model = qobject_cast<GameTableModel *>(table->model());
     QCOMPARE(model->index(0, GameTableModel::StatusColumn).data().toString(), QString());
@@ -125,6 +126,7 @@ void GuiTest::checkboxesDetailsAndTransferStrip()
     auto *table = window.findChild<QTableView *>();
     QVERIFY(table);
     QTRY_VERIFY_WITH_TIMEOUT(table->model() && table->model()->rowCount() == 1, 8000);
+    QTRY_VERIFY_WITH_TIMEOUT(!window.isScanning(), 8000);
     auto *model = qobject_cast<GameTableModel *>(table->model());
     QVERIFY(model);
 
@@ -230,6 +232,7 @@ void GuiTest::healthDialogOpens()
     auto *table = window.findChild<QTableView *>();
     QVERIFY(table);
     QTRY_VERIFY_WITH_TIMEOUT(table->model() && table->model()->rowCount() == 1, 8000);
+    QTRY_VERIFY_WITH_TIMEOUT(!window.isScanning(), 8000);
 
     bool opened = false;
     QTimer watcher;
@@ -274,6 +277,7 @@ void GuiTest::batchMoveFlow()
     auto *table = window.findChild<QTableView *>();
     QVERIFY(table);
     QTRY_VERIFY_WITH_TIMEOUT(table->model() && table->model()->rowCount() == 2, 8000);
+    QTRY_VERIFY_WITH_TIMEOUT(!window.isScanning(), 8000);
 
     QComboBox *destination = nullptr;
     for (QComboBox *combo : window.findChildren<QComboBox *>()) {
