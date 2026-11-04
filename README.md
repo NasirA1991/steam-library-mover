@@ -82,13 +82,13 @@ chmod +x Steam_Library_Mover-x86_64.AppImage
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/main-light.png" alt="Steam Library Mover main window" width="100%">
+  <img src="docs/screenshots/main-window-v0.1.2.png" alt="Steam Library Mover main window" width="100%">
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/review-dark.png" alt="Transfer review" width="46%">
+  <img src="docs/screenshots/transfer-review-v0.1.2.png" alt="Transfer review" width="46%">
   &nbsp;
-  <img src="docs/screenshots/progress-dark.png" alt="Transfer progress" width="46%">
+  <img src="docs/screenshots/transfer-progress-v0.1.2.png" alt="Transfer progress" width="46%">
 </p>
 
 <p align="center"><sub>Screenshots use a demo library. Review every move before it starts; unsafe
