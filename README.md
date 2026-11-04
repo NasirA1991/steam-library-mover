@@ -34,29 +34,19 @@ symlinks, or libraries that contain filenames Windows filesystems cannot represe
 It reviews the move first, refuses unsafe destinations, journals every operation and keeps the
 source intact until the destination has been verified and the Steam manifest has been updated.
 
-**Quick install:** Arch/CachyOS: `yay -S steam-library-mover` · [AppImage download](#appimage) · [Install details](#install)
+## Quick install
 
-**Contents:** [Install](#install) · [Screenshots](#screenshots) · [How to move](#how-to-move-a-game) · [Features](#features) · [Safety](#safety) · [Troubleshooting](#troubleshooting) · [Documentation](#documentation)
+### Arch Linux, CachyOS or EndeavourOS
 
-## Install
+Use whichever AUR helper you normally use:
 
-Before moving a game:
+| Helper | Command |
+| --- | --- |
+| `yay` | `yay -S steam-library-mover` |
+| `paru` | `paru -S steam-library-mover` |
+| `pikaur` | `pikaur -S steam-library-mover` |
 
-- Linux x86_64 with Steam installed.
-- The destination Steam library must already exist and be registered in Steam.
-- Steam and any Proton/Wine games must be closed.
-- Enough free space must be available on the destination.
-- Keep a backup of saves and irreplaceable data while the project is in alpha.
-
-### Arch Linux / CachyOS
-
-The AUR package is the recommended installation:
-
-```bash
-yay -S steam-library-mover
-# or
-paru -S steam-library-mover
-```
+Any other AUR helper works too: `<helper> -S steam-library-mover`.
 
 ### AppImage
 
@@ -68,23 +58,22 @@ chmod +x Steam_Library_Mover-x86_64.AppImage
 ./Steam_Library_Mover-x86_64.AppImage
 ```
 
-The AppImage does not need to be installed system-wide.
+**Other distributions:** use the AppImage above, or build from source using the instructions in
+[CONTRIBUTING.md](CONTRIBUTING.md). A Flatpak version is not currently offered.
 
-### Uninstall
+### Before moving a game
 
-```bash
-# AUR
-yay -Rns steam-library-mover
+- Linux x86_64 with Steam installed.
+- The destination Steam library must already exist and be registered in Steam.
+- Steam and any Proton/Wine games must be closed.
+- Enough free space must be available on the destination.
+- Keep a backup of saves and irreplaceable data while the project is in alpha.
 
-# AppImage: just delete the downloaded file
-```
+**Uninstall:** `yay -Rns steam-library-mover` (or delete the AppImage file).
 
-### Other distributions
-
-Use the AppImage, or build from source using the instructions in
-[CONTRIBUTING.md](CONTRIBUTING.md).
-
-A Flatpak version is not currently offered.
+**On this page:** [Screenshots](#screenshots) · [How to move](#how-to-move-a-game) ·
+[Features](#features) · [Safety](#safety) · [Troubleshooting](#troubleshooting) ·
+[Documentation](#documentation)
 
 ## Screenshots
 
