@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2 — 2026-11-04
+
+- About dialog now shows the application version and clickable GitHub, AUR and issue-tracker links.
+
 ## 0.1.1 — 2026-11-04
 
 Packaging and release automation release. No changes to the move engine or desktop UI.

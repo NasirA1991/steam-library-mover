@@ -1,6 +1,6 @@
 # Maintainer: Nasir A <evilleader91@gmail.com>
 pkgname=steam-library-mover
-pkgver=0.1.1
+pkgver=0.1.2
 pkgrel=1
 pkgdesc="Move installed Steam games between Steam libraries safely"
 arch=('x86_64')

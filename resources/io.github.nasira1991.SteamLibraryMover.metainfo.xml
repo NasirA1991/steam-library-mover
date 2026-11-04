@@ -59,6 +59,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.2" date="2026-11-04">
+      <description>
+        <p>Adds the GitHub, AUR and issue-tracker links, plus the application version, to the About dialog.</p>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-11-04">
       <description>
         <p>Packaging and release automation update: AppImage, Arch package, Flatpak build artifact, AUR publishing workflow and README screenshots. The desktop application and move engine are unchanged from 0.1.0.</p>

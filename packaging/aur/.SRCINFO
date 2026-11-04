@@ -1,6 +1,6 @@
 pkgbase = steam-library-mover
 	pkgdesc = Move installed Steam games between Steam libraries safely
-	pkgver = 0.1.1
+	pkgver = 0.1.2
 	pkgrel = 1
 	url = https://github.com/NasirA1991/steam-library-mover
 	arch = x86_64

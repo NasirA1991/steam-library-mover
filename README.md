@@ -28,7 +28,7 @@
   </a>
 </p>
 
-> **Public alpha — v0.1.1.** This is a safety-sensitive tool. Read
+> **Public alpha — v0.1.2.** This is a safety-sensitive tool. Read
 > [docs/SAFETY.md](docs/SAFETY.md) before moving real games, and keep an independent backup of
 > irreplaceable data.
 

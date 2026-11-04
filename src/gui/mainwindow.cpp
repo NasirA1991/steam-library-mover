@@ -64,6 +64,7 @@
 #include <QStandardItemModel>
 #include <QSplitter>
 #include <QStatusBar>
+#include <QUrl>
 #include <QTableWidget>
 #include <QTextBrowser>
 #include <QTimer>
@@ -3025,15 +3026,34 @@ void MainWindow::showSettings()
 
 void MainWindow::showAbout()
 {
-    QMessageBox::about(
-        this, QStringLiteral("About Steam Library Mover"),
-        QStringLiteral("<h3>Steam Library Mover</h3>"
-                       "<p>Move installed Steam games between Steam libraries without using Steam's "
-                       "own “Move install folder” operation.</p>"
-                       "<p>Requires Steam to be closed. Supports native and Flatpak Steam libraries, "
-                       "NTFS compatdata symlinks, journaled moves and verification.</p>"
-                       "<p>GPL-3.0-or-later. Not affiliated with Valve Corporation. Steam is a "
-                       "trademark of Valve Corporation.</p>"));
+    QMessageBox box(this);
+    box.setWindowTitle(QStringLiteral("About Steam Library Mover"));
+    box.setIconPixmap(windowIcon().pixmap(64, 64));
+    box.setTextFormat(Qt::RichText);
+    box.setText(QStringLiteral(
+        "<h3>Steam Library Mover %1</h3>"
+        "<p>Move installed Steam games between Steam libraries without using Steam's "
+        "own “Move install folder” operation.</p>"
+        "<p>Requires Steam to be closed. Supports native and Flatpak Steam libraries, "
+        "NTFS compatdata symlinks, journaled moves and verification.</p>"
+        "<p><b>Project:</b> <a href=\"https://github.com/NasirA1991/steam-library-mover\">"
+        "github.com/NasirA1991/steam-library-mover</a><br>"
+        "<b>AUR:</b> <a href=\"https://aur.archlinux.org/packages/steam-library-mover\">"
+        "aur.archlinux.org/packages/steam-library-mover</a><br>"
+        "<b>Issues:</b> <a href=\"https://github.com/NasirA1991/steam-library-mover/issues\">"
+        "github.com/NasirA1991/steam-library-mover/issues</a></p>"
+        "<p>GPL-3.0-or-later. Not affiliated with Valve Corporation. Steam is a "
+        "trademark of Valve Corporation.</p>")
+                  .arg(QApplication::applicationVersion()));
+    box.setTextInteractionFlags(Qt::TextBrowserInteraction);
+    if (auto *label = box.findChild<QLabel *>(QStringLiteral("qt_msgbox_label"))) {
+        label->setOpenExternalLinks(false);
+        connect(label, &QLabel::linkActivated, this, [](const QString &url) {
+            QDesktopServices::openUrl(QUrl(url));
+        });
+    }
+    box.setStandardButtons(QMessageBox::Close);
+    box.exec();
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
