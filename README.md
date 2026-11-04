@@ -34,6 +34,14 @@ symlinks, or libraries that contain filenames Windows filesystems cannot represe
 It reviews the move first, refuses unsafe destinations, journals every operation and keeps the
 source intact until the destination has been verified and the Steam manifest has been updated.
 
+## Before you start
+
+- Linux x86_64 with Steam installed.
+- The destination Steam library must already exist and be registered in Steam.
+- Steam and any Proton/Wine games must be closed.
+- Enough free space must be available on the destination.
+- Keep a backup of saves and irreplaceable data while the project is in alpha.
+
 ## Install
 
 ### Arch Linux / CachyOS
@@ -48,15 +56,15 @@ paru -S steam-library-mover
 
 ### AppImage
 
-Download the latest AppImage from
-[GitHub Releases](https://github.com/NasirA1991/steam-library-mover/releases):
+Download the latest portable build:
 
 ```bash
+curl -LO https://github.com/NasirA1991/steam-library-mover/releases/latest/download/Steam_Library_Mover-x86_64.AppImage
 chmod +x Steam_Library_Mover-x86_64.AppImage
 ./Steam_Library_Mover-x86_64.AppImage
 ```
 
-The AppImage is portable and does not need to be installed system-wide.
+The AppImage does not need to be installed system-wide.
 
 ### Other distributions
 
@@ -77,8 +85,8 @@ A Flatpak version is not currently offered.
   <img src="docs/screenshots/progress-dark.png" alt="Transfer progress" width="46%">
 </p>
 
-<p align="center"><sub>Review every move before it starts; unsafe destinations are explained
-instead of being attempted.</sub></p>
+<p align="center"><sub>Screenshots use a demo library. Review every move before it starts; unsafe
+destinations are explained instead of being attempted.</sub></p>
 
 ## How to move a game
 
@@ -177,6 +185,17 @@ steam-library-mover-cli health
 ```
 
 Run `steam-library-mover-cli --help` for all options.
+
+## Troubleshooting
+
+| Problem | What to do |
+| --- | --- |
+| Steam's own mover fails with “content file locked” | Use Steam Library Mover; it handles shared Proton prefixes without moving a prefix onto itself. |
+| A library is read-only | Check `findmnt -T <library path>` and remount it read-write with the correct permissions. |
+| Move blocked by an NTFS case collision | Use a case-sensitive Linux filesystem, or resolve the conflicting game file with a backup. The app will not modify game files automatically. |
+| Game is not listed | Click **Rescan**, check the selected Steam installation, or set a custom Steam root in Settings. |
+| The AUR build still looks old | Check `command -v steam-library-mover`. An old copy in `/usr/local/bin` can shadow `/usr/bin/steam-library-mover`. |
+| AppImage will not start | Make it executable and try `APPIMAGE_EXTRACT_AND_RUN=1 ./Steam_Library_Mover-x86_64.AppImage`. |
 
 ## Documentation
 
