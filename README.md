@@ -34,15 +34,19 @@ symlinks, or libraries that contain filenames Windows filesystems cannot represe
 It reviews the move first, refuses unsafe destinations, journals every operation and keeps the
 source intact until the destination has been verified and the Steam manifest has been updated.
 
-## Before you start
+**Quick install:** Arch/CachyOS: `yay -S steam-library-mover` · [AppImage download](#appimage) · [Install details](#install)
+
+**Contents:** [Install](#install) · [Screenshots](#screenshots) · [How to move](#how-to-move-a-game) · [Features](#features) · [Safety](#safety) · [Troubleshooting](#troubleshooting) · [Documentation](#documentation)
+
+## Install
+
+Before moving a game:
 
 - Linux x86_64 with Steam installed.
 - The destination Steam library must already exist and be registered in Steam.
 - Steam and any Proton/Wine games must be closed.
 - Enough free space must be available on the destination.
 - Keep a backup of saves and irreplaceable data while the project is in alpha.
-
-## Install
 
 ### Arch Linux / CachyOS
 
