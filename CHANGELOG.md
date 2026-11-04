@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3 — 2026-11-04
+
+- Added **Open on ProtonDB** to the game context menu for Proton and unknown-runtime games.
+  Native games and tools only show the existing SteamDB link.
+
 ## 0.1.2 — 2026-11-04
 
 - About dialog now shows the application version and clickable GitHub, AUR and issue-tracker links.

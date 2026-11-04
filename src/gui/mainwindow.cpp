@@ -935,6 +935,14 @@ void MainWindow::showGameContextMenu(const QPoint &pos)
         QDesktopServices::openUrl(
             QUrl(QStringLiteral("https://steamdb.info/app/%1/").arg(game->appId)));
     });
+    if (game->category == slm::GameCategory::Game
+        && game->runtime != slm::RuntimeKind::Native) {
+        QAction *protonDb = menu.addAction(QStringLiteral("Open on ProtonDB"));
+        connect(protonDb, &QAction::triggered, this, [game]() {
+            QDesktopServices::openUrl(
+                QUrl(QStringLiteral("https://www.protondb.com/app/%1").arg(game->appId)));
+        });
+    }
     menu.exec(m_table->viewport()->mapToGlobal(pos));
 }
 

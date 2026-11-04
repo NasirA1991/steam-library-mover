@@ -1,9 +1,9 @@
-# Steam Library Mover v0.1.2 — public alpha
+# Steam Library Mover v0.1.3 — public alpha
 
 **This is an alpha release of a tool that moves real game files. Read the safety notes and keep an
 independent backup of irreplaceable data.**
 
-This release adds the application version and clickable GitHub, AUR and issue-tracker links to the About dialog. The move engine is unchanged.
+This release adds an **Open on ProtonDB** link to the game context menu for Proton and unknown-runtime games. Native games and tools only show the existing SteamDB link. The move engine is unchanged.
 
 ## Highlights
 

@@ -129,8 +129,8 @@ manifest has been updated. If something fails before that point, the source rema
 - **Library Health** — finds stale lock files, orphaned data, duplicate appids and broken
   `compatdata` links without deleting anything.
 - **NTFS Doctor** — checks or creates the recommended shared `compatdata` symlink for NTFS libraries.
-- **Desktop integration** — KDE notifications, optional Start Steam after a move, sleep inhibition
-  and Light/Dark/System themes.
+- **Desktop integration** — KDE notifications, optional Start Steam after a move, sleep inhibition,
+  Light/Dark/System themes and quick SteamDB/ProtonDB links.
 - **Command line** — the same move engine is available for scripting and diagnostics.
 
 ## Safety
