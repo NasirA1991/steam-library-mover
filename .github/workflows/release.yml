@@ -135,7 +135,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: Steam Library Mover ${{ github.ref_name }}
-          prerelease: true
+          prerelease: false
           body_path: docs/RELEASE_NOTES.md
           files: |
             dist/*.AppImage
