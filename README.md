@@ -81,8 +81,16 @@ chmod +x Steam_Library_Mover-x86_64.AppImage
 
 ## Screenshots
 
+<p align="center"><b>Light theme</b></p>
+
 <p align="center">
-  <img src="docs/screenshots/main-window-v0.1.2.png" alt="Steam Library Mover main window" width="100%">
+  <img src="docs/screenshots/main-window-v0.1.2.png" alt="Steam Library Mover main window in the light theme" width="100%">
+</p>
+
+<p align="center"><b>Dark theme</b></p>
+
+<p align="center">
+  <img src="docs/screenshots/main-window-dark-v0.1.2.png" alt="Steam Library Mover main window in the dark theme" width="100%">
 </p>
 
 <p align="center">
