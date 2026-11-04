@@ -10,6 +10,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/NasirA1991/steam-library-mover/actions/workflows/ci.yml">
+    <img src="https://github.com/NasirA1991/steam-library-mover/actions/workflows/ci.yml/badge.svg"
+         alt="CI status">
+  </a>
   <a href="https://github.com/NasirA1991/steam-library-mover/releases">
     <img src="https://img.shields.io/github/v/release/NasirA1991/steam-library-mover?include_prereleases&amp;label=release"
          alt="Latest release">
