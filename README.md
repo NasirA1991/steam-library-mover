@@ -89,7 +89,7 @@ A Flatpak version is not currently offered.
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/review-dark.png" alt="Transfer review with blocked-move details" width="46%">
+  <img src="docs/screenshots/review-dark.png" alt="Transfer review" width="46%">
   &nbsp;
   <img src="docs/screenshots/progress-dark.png" alt="Transfer progress" width="46%">
 </p>
