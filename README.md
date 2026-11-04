@@ -66,6 +66,15 @@ chmod +x Steam_Library_Mover-x86_64.AppImage
 
 The AppImage does not need to be installed system-wide.
 
+### Uninstall
+
+```bash
+# AUR
+yay -Rns steam-library-mover
+
+# AppImage: just delete the downloaded file
+```
+
 ### Other distributions
 
 Use the AppImage, or build from source using the instructions in
@@ -196,6 +205,10 @@ Run `steam-library-mover-cli --help` for all options.
 | Game is not listed | Click **Rescan**, check the selected Steam installation, or set a custom Steam root in Settings. |
 | The AUR build still looks old | Check `command -v steam-library-mover`. An old copy in `/usr/local/bin` can shadow `/usr/bin/steam-library-mover`. |
 | AppImage will not start | Make it executable and try `APPIMAGE_EXTRACT_AND_RUN=1 ./Steam_Library_Mover-x86_64.AppImage`. |
+
+If a move is blocked and you are unsure why, the **Why blocked?** button in the review dialog
+includes the exact paths and guidance. If the problem is not explained there, open an issue:
+https://github.com/NasirA1991/steam-library-mover/issues
 
 ## Documentation
 
