@@ -13,6 +13,6 @@ pkgbase = steam-library-mover
 	optdepends = steam: native Steam client
 	optdepends = flatpak: Flatpak Steam client
 	source = steam-library-mover-0.1.4.tar.gz::https://github.com/NasirA1991/steam-library-mover/archive/refs/tags/v0.1.4.tar.gz
-	sha256sums = SKIP
+	sha256sums = f0f8f540f7c389b69e6f3b9cd1a2cafe53ccaf93d8ec9e9e7f23c178586dbdee
 
 pkgname = steam-library-mover
