@@ -9,6 +9,8 @@
 #include "core/scanner.h"
 #include "core/vdf.h"
 
+#include "core/process_check.h"
+
 #include "test_helpers.h"
 
 #include <QDir>
@@ -44,6 +46,7 @@ private slots:
 
 void MoverTest::initTestCase()
 {
+    setProcessInspectorForTesting([](const QStringList &, const QStringList &) { return ProcessUsage{}; });
     // Keep all journal/log/backup data inside the test temporary directory.
     qputenv("SLM_STATE_DIR", QDir::tempPath().toUtf8() + "/slm-test-state-"
                                   + qgetenv("USER"));

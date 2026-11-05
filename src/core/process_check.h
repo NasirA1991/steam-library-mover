@@ -6,6 +6,8 @@
 #include <QStringList>
 #include <QVector>
 
+#include <functional>
+
 namespace slm {
 
 struct ProcessUsage
@@ -21,6 +23,10 @@ struct ProcessUsage
 };
 
 ProcessUsage inspectProcesses(const QStringList &prefixes, const QStringList &gameDirs);
+
+// Test-only seam. Production code never installs an inspector.
+using ProcessInspector = std::function<ProcessUsage(const QStringList &, const QStringList &)>;
+void setProcessInspectorForTesting(ProcessInspector inspector);
 bool requestSteamShutdown(InstallKind kind, QString *error = nullptr);
 QString steamShutdownCommand(InstallKind kind);
 QString steamLaunchCommand(InstallKind kind);

@@ -59,6 +59,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.5" date="2026-11-05">
+      <description>
+        <p>Fixes test isolation so package checks succeed while Steam is running. No runtime behavior change.</p>
+      </description>
+    </release>
     <release version="0.1.4" date="2026-11-05">
       <description>
         <p>Safety release: preserves relative symlinks exactly, fixes permanently unfinished journal states, guards rollback against root and running Steam/game processes, and centralizes version metadata.</p>

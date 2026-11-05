@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.5 — 2026-11-05
+
+- Added a test-only process-inspector seam so package tests do not fail when
+  Steam is already running on the build host. No runtime behavior change.
+
 ## 0.1.4 — 2026-11-05
 
 - Fixed relative symlink corruption: targets are now captured with `readlink` and

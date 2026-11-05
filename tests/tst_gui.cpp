@@ -4,6 +4,8 @@
 #include "gui/mainwindow.h"
 #include "core/scancache.h"
 
+#include "core/process_check.h"
+
 #include "test_helpers.h"
 
 #include <QApplication>
@@ -28,12 +30,18 @@ class GuiTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void initTestCase();
     void startupAndSelection();
     void checkboxesDetailsAndTransferStrip();
     void dragDropTarget();
     void healthDialogOpens();
     void batchMoveFlow();
 };
+
+void GuiTest::initTestCase()
+{
+    slm::setProcessInspectorForTesting([](const QStringList &, const QStringList &) { return slm::ProcessUsage{}; });
+}
 
 void GuiTest::startupAndSelection()
 {

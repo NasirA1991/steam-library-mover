@@ -1,9 +1,9 @@
-# Steam Library Mover v0.1.4 — public alpha
+# Steam Library Mover v0.1.5 — public alpha
 
 **This is an alpha release of a tool that moves real game files. Read the safety notes and keep an
 independent backup of irreplaceable data.**
 
-This is a safety release. It fixes relative symlink corruption, fixes permanently unfinished warning-state journals, and adds root/process guards to rollback. It also removes an unnecessary Flatpak host-spawn permission and centralizes version metadata.
+This is a packaging fix. It adds a test-only process-inspector seam so the package test suite does not fail when Steam is already running on the build host. There is no runtime behavior change from 0.1.4.
 
 ## Highlights
 

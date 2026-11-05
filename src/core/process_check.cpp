@@ -16,6 +16,8 @@ namespace slm {
 
 namespace {
 
+ProcessInspector g_testInspector;
+
 QString baseName(const QString &value)
 {
     return QFileInfo(value).fileName();
@@ -74,8 +76,16 @@ bool isSteamProcessName(const QString &name)
     return names.contains(name.toLower());
 }
 
+void setProcessInspectorForTesting(ProcessInspector inspector)
+{
+    g_testInspector = std::move(inspector);
+}
+
 ProcessUsage inspectProcesses(const QStringList &prefixes, const QStringList &gameDirs)
 {
+    if (g_testInspector)
+        return g_testInspector(prefixes, gameDirs);
+
     ProcessUsage usage;
     const qint64 self = QCoreApplication::applicationPid();
     QDir proc(QStringLiteral("/proc"));

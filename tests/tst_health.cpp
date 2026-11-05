@@ -4,6 +4,8 @@
 #include "core/mountinfo.h"
 #include "core/scanner.h"
 
+#include "core/process_check.h"
+
 #include "test_helpers.h"
 
 #include <QDir>
@@ -17,9 +19,15 @@ class HealthTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void initTestCase();
     void scanFindsStaleState();
     void quarantineMovesLockAndTemp();
 };
+
+void HealthTest::initTestCase()
+{
+    slm::setProcessInspectorForTesting([](const QStringList &, const QStringList &) { return slm::ProcessUsage{}; });
+}
 
 void HealthTest::scanFindsStaleState()
 {
