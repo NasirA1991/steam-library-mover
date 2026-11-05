@@ -1,9 +1,9 @@
-# Steam Library Mover v0.1.3 — public alpha
+# Steam Library Mover v0.1.4 — public alpha
 
 **This is an alpha release of a tool that moves real game files. Read the safety notes and keep an
 independent backup of irreplaceable data.**
 
-This release adds an **Open on ProtonDB** link to the game context menu for Proton and unknown-runtime games. Native games and tools only show the existing SteamDB link. The move engine is unchanged.
+This is a safety release. It fixes relative symlink corruption, fixes permanently unfinished warning-state journals, and adds root/process guards to rollback. It also removes an unnecessary Flatpak host-spawn permission and centralizes version metadata.
 
 ## Highlights
 

@@ -1,4 +1,4 @@
-.TH STEAM-LIBRARY-MOVER 1 "2026" "steam-library-mover 0.1.0" "User Commands"
+.TH STEAM-LIBRARY-MOVER 1 "2026" "steam-library-mover @PROJECT_VERSION@" "User Commands"
 .SH NAME
 steam-library-mover \- move installed Steam games between libraries safely
 .SH SYNOPSIS

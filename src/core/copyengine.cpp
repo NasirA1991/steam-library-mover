@@ -3,6 +3,8 @@
 
 #include "filetree.h"
 
+#include "fileops.h"
+
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
@@ -275,9 +277,12 @@ bool destinationMatches(const FileEntry &entry, const QString &destination)
     switch (entry.type) {
     case FileEntryType::Directory:
         return isDirectory(st);
-    case FileEntryType::Symlink:
-        return S_ISLNK(st.st_mode)
-            && QFileInfo(destination).symLinkTarget() == entry.symlinkTarget;
+    case FileEntryType::Symlink: {
+        if (!S_ISLNK(st.st_mode))
+            return false;
+        const auto target = fsutil::readSymlinkTarget(destination);
+        return target && *target == entry.symlinkTarget.toUtf8();
+    }
     case FileEntryType::File:
         return S_ISREG(st.st_mode) && static_cast<quint64>(st.st_size) == entry.size
             && st.st_mtim.tv_sec == entry.mtimeSec
@@ -394,9 +399,10 @@ bool CopyEngine::copyTree(const QString &source, const QString &destination,
         case FileEntryType::Symlink: {
             struct stat st {};
             bool exists = lstatPath(destPath, &st);
-            if (exists && S_ISLNK(st.st_mode)
-                && QFileInfo(destPath).symLinkTarget() == entry.symlinkTarget) {
-                break;
+            if (exists && S_ISLNK(st.st_mode)) {
+                const auto existingTarget = fsutil::readSymlinkTarget(destPath);
+                if (existingTarget && *existingTarget == entry.symlinkTarget.toUtf8())
+                    break;
             }
             if (exists && !S_ISLNK(st.st_mode)) {
                 if (error)

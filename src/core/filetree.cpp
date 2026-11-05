@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "filetree.h"
 
+#include "fileops.h"
+
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -105,8 +107,15 @@ bool scanDirectory(const QString &absolutePath, const QString &relativePath, Fil
 
         if (S_ISLNK(st.st_mode)) {
             fileEntry.type = FileEntryType::Symlink;
-            const QByteArray target = QFile::symLinkTarget(childAbsolute).toUtf8();
-            fileEntry.symlinkTarget = QString::fromUtf8(target);
+            QString linkError;
+            const auto target = fsutil::readSymlinkTarget(childAbsolute, &linkError);
+            if (!target) {
+                if (error)
+                    *error = linkError;
+                ok = false;
+                break;
+            }
+            fileEntry.symlinkTarget = QString::fromUtf8(*target);
             fileEntry.size = 0;
             tree.symlinkCount++;
             tree.entries.append(fileEntry);

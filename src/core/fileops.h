@@ -16,5 +16,6 @@ bool removeTree(const QString &path, QString *error = nullptr);
 bool isSameFilesystem(const QString &a, const QString &b);
 QString uniqueSuffix();
 std::optional<QByteArray> readFile(const QString &path, qint64 maxSize, QString *error = nullptr);
+std::optional<QByteArray> readSymlinkTarget(const QString &path, QString *error = nullptr);
 
 } // namespace slm::fsutil

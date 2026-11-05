@@ -77,13 +77,13 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           useradd --create-home builder
           chown -R builder:builder .
-          su builder -c "
+          su builder -c '
             set -eu
-            cd '$PWD/packaging/aur'
-            sed -i \"s/^pkgver=.*/pkgver=$version/\" PKGBUILD
+            cd "$1"
+            sed -i "s/^pkgver=.*/pkgver=$2/" PKGBUILD
             updpkgsums
             makepkg --nodeps --nocheck --force
-          "
+          ' _ "$PWD/packaging/aur" "$version"
           package=$(find packaging/aur -maxdepth 1 -name '*.pkg.tar.zst' -print -quit)
           test -n "$package"
           namcap "$package" || true

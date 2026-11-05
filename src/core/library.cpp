@@ -180,8 +180,8 @@ CompatDataInfo inspectCompatData(const Library &library, const MountTable &mount
 
     if (S_ISLNK(st.st_mode)) {
         info.state = CompatDataState::Symlink;
-        const QByteArray target = QFile::symLinkTarget(info.path).toUtf8();
-        info.linkTarget = QString::fromUtf8(target);
+        const auto target = fsutil::readSymlinkTarget(info.path);
+        info.linkTarget = target ? QString::fromUtf8(*target) : QString();
         const QFileInfo targetInfo(info.path);
         const QString canonical = targetInfo.canonicalFilePath();
         if (canonical.isEmpty()) {

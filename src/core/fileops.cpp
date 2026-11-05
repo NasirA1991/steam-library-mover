@@ -175,6 +175,26 @@ bool removeTree(const QString &path, QString *error)
     return ok;
 }
 
+
+std::optional<QByteArray> readSymlinkTarget(const QString &path, QString *error)
+{
+    QByteArray target(256, '\0');
+    const QByteArray encoded = QFile::encodeName(path);
+    for (;;) {
+        const ssize_t length = ::readlink(encoded.constData(), target.data(), target.size());
+        if (length < 0) {
+            if (error)
+                *error = QStringLiteral("Cannot read symlink %1: %2").arg(path, errnoString());
+            return std::nullopt;
+        }
+        if (length < target.size()) {
+            target.resize(static_cast<int>(length));
+            return target;
+        }
+        target.resize(target.size() * 2);
+    }
+}
+
 bool isSameFilesystem(const QString &a, const QString &b)
 {
     struct stat stA {};

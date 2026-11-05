@@ -1,11 +1,12 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(SteamLibraryMover VERSION 0.1.3 LANGUAGES CXX)
+project(SteamLibraryMover VERSION 0.1.4 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+add_compile_definitions(SLM_VERSION="${PROJECT_VERSION}")
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
@@ -95,7 +96,8 @@ install(FILES resources/icons/steam-library-mover.svg
 install(FILES resources/io.github.nasira1991.SteamLibraryMover.metainfo.xml
     DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
 )
-install(FILES resources/steam-library-mover.1
+configure_file(resources/steam-library-mover.1.in ${CMAKE_CURRENT_BINARY_DIR}/steam-library-mover.1 @ONLY)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/steam-library-mover.1
     DESTINATION ${CMAKE_INSTALL_MANDIR}/man1
 )
 install(FILES LICENSE README.md

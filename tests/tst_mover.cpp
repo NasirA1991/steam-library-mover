@@ -18,6 +18,8 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <unistd.h>
+
 using namespace slm;
 
 class MoverTest : public QObject
@@ -26,6 +28,8 @@ class MoverTest : public QObject
 private slots:
     void initTestCase();
     void sharedPrefixMove();
+    void relativeSymlinkMove();
+    void doneWithWarningsIsFinished();
     void prefixMoveToRealDirectory();
     void cancelAndRollback();
     void revalidateRejectsChangedMount();
@@ -106,6 +110,67 @@ void MoverTest::sharedPrefixMove()
     QVERIFY(!sourceHas);
     QVERIFY(destHas);
 
+}
+
+
+void MoverTest::relativeSymlinkMove()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    qputenv("SLM_STATE_DIR", (temp.path() + QStringLiteral("/state")).toUtf8());
+    const QString steamRoot = testutil::makeFixtureSteam(temp);
+    const QString sourceLibrary = temp.path() + QStringLiteral("/libraryA");
+    const QString destLibrary = temp.path() + QStringLiteral("/libraryB");
+    const QString payload = sourceLibrary + QStringLiteral("/steamapps/common/Test Game");
+    QVERIFY(QDir().mkpath(payload + QStringLiteral("/sub")));
+    QFile sibling(payload + QStringLiteral("/game.dat"));
+    QVERIFY(sibling.open(QIODevice::ReadOnly));
+    sibling.close();
+    QCOMPARE(::symlink("game.dat", (payload + QStringLiteral("/sub/link-rel")).toUtf8().constData()), 0);
+    QCOMPARE(::symlink("../game.dat", (payload + QStringLiteral("/link-up")).toUtf8().constData()), 0);
+
+    const MountTable mounts = MountTable::fromMounts({testutil::makeMount(temp.path())});
+    QString error;
+    SteamScan scan = scanSteam({steamRoot, InstallKind::Native}, mounts, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    MoveOptions options;
+    options.allowNtfsNative = true;
+    MovePlan plan = MovePlanner::plan(scan, 12345, destLibrary, options, mounts, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QVERIFY2(!plan.hasBlocker(), qPrintable(plan.blockers().isEmpty()
+                                                ? QStringLiteral("no blocker")
+                                                : plan.blockers().first().detail));
+
+    MoveExecutor executor;
+    const MoveResult result = executor.execute(plan, mounts);
+    QVERIFY2(result.ok, qPrintable(result.error));
+
+    const QString destPayload = destLibrary + QStringLiteral("/steamapps/common/Test Game");
+    const auto rel = fsutil::readSymlinkTarget(destPayload + QStringLiteral("/sub/link-rel"));
+    const auto up = fsutil::readSymlinkTarget(destPayload + QStringLiteral("/link-up"));
+    QVERIFY(rel.has_value());
+    QVERIFY(up.has_value());
+    QCOMPARE(QString::fromUtf8(*rel), QStringLiteral("game.dat"));
+    QCOMPARE(QString::fromUtf8(*up), QStringLiteral("../game.dat"));
+    QVERIFY(!QFileInfo::exists(sourceLibrary + QStringLiteral("/steamapps/common/Test Game")));
+}
+
+
+void MoverTest::doneWithWarningsIsFinished()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    qputenv("SLM_STATE_DIR", (temp.path() + QStringLiteral("/state")).toUtf8());
+    QString error;
+    QVERIFY2(JournalStore::ensure(&error), qPrintable(error));
+    QJsonObject journal;
+    journal.insert(QStringLiteral("opId"), QStringLiteral("finished-with-warnings"));
+    journal.insert(QStringLiteral("state"), QStringLiteral("done-with-warnings"));
+    journal.insert(QStringLiteral("phase"), QStringLiteral("Done"));
+    QVERIFY2(JournalStore::writeObject(
+                 JournalStore::journalPath(QStringLiteral("finished-with-warnings")),
+                 journal, &error), qPrintable(error));
+    QVERIFY(MoveExecutor::unfinishedOperations().isEmpty());
 }
 
 void MoverTest::prefixMoveToRealDirectory()

@@ -117,7 +117,7 @@ void ArtworkProvider::fetch(const Pending &pending)
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
     request.setHeader(QNetworkRequest::UserAgentHeader,
-                      QStringLiteral("SteamLibraryMover/0.1.0"));
+                      QStringLiteral("SteamLibraryMover/") + QString::fromLatin1(SLM_VERSION));
     request.setRawHeader("Accept", "image/jpeg,image/png");
     request.setTransferTimeout(10000);
 

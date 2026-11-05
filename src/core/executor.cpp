@@ -470,7 +470,9 @@ QList<QJsonObject> MoveExecutor::unfinishedOperations()
     QList<QJsonObject> result;
     for (const QJsonObject &journal : JournalStore::listOperations()) {
         const QString state = journal.value(QStringLiteral("state")).toString();
-        if (state == QStringLiteral("done") || state == QStringLiteral("rolled-back"))
+        if (state == QStringLiteral("done")
+            || state == QStringLiteral("done-with-warnings")
+            || state == QStringLiteral("rolled-back"))
             continue;
         result.append(journal);
     }
@@ -479,6 +481,41 @@ QList<QJsonObject> MoveExecutor::unfinishedOperations()
 
 bool MoveExecutor::rollbackOperation(const QJsonObject &journal, QString *error)
 {
+    if (::geteuid() == 0) {
+        if (error)
+            *error = QStringLiteral("Refusing to roll back as root");
+        return false;
+    }
+
+    QStringList prefixes;
+    QStringList gameDirs;
+    for (const QJsonValue &value : journal.value(QStringLiteral("components")).toArray()) {
+        const QJsonObject component = value.toObject();
+        const int kind = component.value(QStringLiteral("kind")).toInt();
+        const QString source = component.value(QStringLiteral("source")).toString();
+        const QString destination = component.value(QStringLiteral("destination")).toString();
+        if (kind == static_cast<int>(ComponentKind::Prefix)) {
+            if (!source.isEmpty())
+                prefixes.append(source);
+            if (!destination.isEmpty())
+                prefixes.append(destination);
+        } else if (kind == static_cast<int>(ComponentKind::Game) && !destination.isEmpty()) {
+            gameDirs.append(destination);
+        }
+    }
+
+    const ProcessUsage usage = inspectProcesses(prefixes, gameDirs);
+    if (usage.steamRunning) {
+        if (error)
+            *error = QStringLiteral("Close Steam before rolling back an operation");
+        return false;
+    }
+    if (usage.prefixInUse || usage.gameInUse) {
+        if (error)
+            *error = QStringLiteral("Close the running game/Proton processes before rolling back");
+        return false;
+    }
+
     const QString phase = journal.value(QStringLiteral("phase")).toString();
     if (phase == phaseName(Phase::RemovingSourceManifest)
         || phase == phaseName(Phase::RemovingSourcePayload) || phase == phaseName(Phase::Done)) {

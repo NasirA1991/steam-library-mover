@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.4 — 2026-11-05
+
+- Fixed relative symlink corruption: targets are now captured with `readlink` and
+  recreated verbatim instead of being silently converted to absolute source paths.
+- Added a regression test covering relative symlinks and `../` targets.
+- Treated `done-with-warnings` operations as finished so they stop appearing as
+  unfinished moves forever.
+- Rollback now refuses to run as root and refuses while Steam, a prefix or a game
+  directory is in use.
+- Removed the `org.freedesktop.Flatpak` permission from the experimental Flatpak
+  manifest; host command execution must not be implicit.
+- Removed tag interpolation in the AUR and Arch package workflow shell commands.
+- Centralized the application version in CMake and generated the manpage version.
+
 ## 0.1.3 — 2026-11-04
 
 - Added **Open on ProtonDB** to the game context menu for Proton and unknown-runtime games.

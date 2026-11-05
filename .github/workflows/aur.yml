@@ -9,7 +9,7 @@ on:
       tag:
         description: Release tag to publish to AUR
         required: true
-        default: v0.1.0
+        default: v0.1.4
 
 permissions:
   contents: read
@@ -20,6 +20,8 @@ jobs:
     runs-on: ubuntu-24.04
     container: archlinux:latest
     timeout-minutes: 20
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - name: Install packaging tools
         run: |
@@ -30,21 +32,21 @@ jobs:
       - name: Update version, checksum and SRCINFO
         run: |
           set -eu
-          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          tag="$RELEASE_TAG"
           version="${tag#v}"
           useradd --create-home builder
           chown -R builder:builder .
           mkdir -p aur-artifact
           chown builder:builder aur-artifact
-          su builder -c "
+          su builder -c '
             set -eu
-            cd '$GITHUB_WORKSPACE/packaging/aur'
-            sed -i 's/^pkgver=.*/pkgver=$version/' PKGBUILD
+            cd "$1/packaging/aur"
+            sed -i "s/^pkgver=.*/pkgver=$2/" PKGBUILD
             updpkgsums
             makepkg --printsrcinfo > .SRCINFO
-            cp PKGBUILD '$GITHUB_WORKSPACE/aur-artifact/'
-            cp .SRCINFO '$GITHUB_WORKSPACE/aur-artifact/SRCINFO'
-          "
+            cp PKGBUILD "$1/aur-artifact/"
+            cp .SRCINFO "$1/aur-artifact/SRCINFO"
+          ' _ "$GITHUB_WORKSPACE" "$version"
       - uses: actions/upload-artifact@v4
         with:
           name: aur-recipe
@@ -56,6 +58,8 @@ jobs:
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -94,5 +98,5 @@ jobs:
             echo "AUR recipe is already up to date."
             exit 0
           fi
-          git commit -m "Update steam-library-mover to ${{ github.event.inputs.tag || github.ref_name }}"
+          git commit -m "Update steam-library-mover to $RELEASE_TAG"
           git push origin master

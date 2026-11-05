@@ -84,22 +84,22 @@ chmod +x Steam_Library_Mover-x86_64.AppImage
 <p align="center"><b>Light theme</b></p>
 
 <p align="center">
-  <img src="docs/screenshots/main-window-v0.1.2.png" alt="Steam Library Mover main window in the light theme" width="100%">
+  <img src="docs/screenshots/main-window.png" alt="Steam Library Mover main window in the light theme" width="100%">
 </p>
 
 <p align="center"><b>Dark theme</b></p>
 
 <p align="center">
-  <img src="docs/screenshots/main-window-dark-v0.1.2.png" alt="Steam Library Mover main window in the dark theme" width="100%">
+  <img src="docs/screenshots/main-window-dark.png" alt="Steam Library Mover main window in the dark theme" width="100%">
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/transfer-review-v0.1.2.png" alt="Transfer review" width="46%">
+  <img src="docs/screenshots/transfer-review.png" alt="Transfer review" width="46%">
   &nbsp;
-  <img src="docs/screenshots/transfer-progress-v0.1.2.png" alt="Transfer progress" width="46%">
+  <img src="docs/screenshots/transfer-progress.png" alt="Transfer progress" width="46%">
 </p>
 
-<p align="center"><sub>Current build v0.1.2. Screenshots use a demo library. Review every move before it starts; unsafe destinations are explained instead of being attempted.</sub></p>
+<p align="center"><sub>Current build v0.1.4. Screenshots use a demo library. Review every move before it starts; unsafe destinations are explained instead of being attempted.</sub></p>
 
 ## How to move a game
 
