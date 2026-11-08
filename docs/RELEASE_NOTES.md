@@ -1,9 +1,9 @@
-# Steam Library Mover v0.1.5 — public alpha
+# Steam Library Mover v0.1.6 — public alpha
 
 **This is an alpha release of a tool that moves real game files. Read the safety notes and keep an
 independent backup of irreplaceable data.**
 
-This is a packaging fix. It adds a test-only process-inspector seam so the package test suite does not fail when Steam is already running on the build host. There is no runtime behavior change from 0.1.4.
+This is a safety update. Full SHA-256 verification is now the default; rollback restores metadata before deleting destination data and validates journal paths; NTFS acknowledgement is enforced by the core; unknown filesystems are refused; and release builds run the test suite.
 
 ## Highlights
 

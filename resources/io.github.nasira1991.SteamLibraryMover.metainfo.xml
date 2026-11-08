@@ -59,6 +59,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.6" date="2026-11-08">
+      <description>
+        <p>Safety update: full checksum verification is now the default, rollback restores metadata before deleting data and validates journal paths, NTFS acknowledgement is enforced in the core, and release builds run the test suite.</p>
+      </description>
+    </release>
     <release version="0.1.5" date="2026-11-05">
       <description>
         <p>Fixes test isolation so package checks succeed while Steam is running. No runtime behavior change.</p>

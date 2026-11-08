@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.6 — 2026-11-08
+
+- Full SHA-256 verification is now the default. Quick mode is an explicit opt-out
+  with a visible risk warning in the GUI and CLI.
+- Rollback restores `libraryfolders.vdf` before deleting destination data, validates
+  operation IDs and journal paths, and refuses unsafe backups.
+- NTFS acknowledgement is collected by the GUI but enforced by the core planner and
+  executor.
+- Unknown filesystems are refused; ambiguous `fuseblk` mounts carry a warning.
+- Source cleanup no longer falls back to deleting in place when quarantine rename fails.
+- Shared GUI/CLI instance lock, journal fsync, safer process detection, valid CLI JSON
+  output, mount revalidation, traversal depth limits and copy-buffer reuse.
+- Release Arch and AppImage builds run tests; root-hostile tests skip safely.
+- Packaging documentation now matches the automated release and AUR workflows.
+
 ## 0.1.5 — 2026-11-05
 
 - Added a test-only process-inspector seam so package tests do not fail when
