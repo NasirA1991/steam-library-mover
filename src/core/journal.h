@@ -15,6 +15,7 @@ QString backupsDir();
 QString operationsDir();
 bool ensure(QString *error = nullptr);
 QString newOperationId();
+bool isValidOperationId(const QString &opId);
 QString operationDir(const QString &opId);
 QString journalPath(const QString &opId);
 QString logPath(const QString &opId);

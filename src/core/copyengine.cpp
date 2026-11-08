@@ -118,7 +118,7 @@ bool applyTimesAndMode(const QString &path, const FileEntry &entry, bool symlink
 bool copyRegularFile(const QString &source, const QString &destination, const FileEntry &entry,
                      const CopyEngine::ProgressFn &progress, qint64 *bytesCopied,
                      const CopyEngine::CancelFn &cancelled, const CopyEngine::PauseFn &paused,
-                     QString *error)
+                     std::vector<char> &buffer, QString *error)
 {
     const QByteArray sourceName = QFile::encodeName(source);
     const int input = ::open(sourceName.constData(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
@@ -172,7 +172,6 @@ bool copyRegularFile(const QString &source, const QString &destination, const Fi
             *error = QStringLiteral("Cancelled by user");
     }
 
-    std::vector<char> buffer(static_cast<size_t>(kBufferSize));
     QElapsedTimer timer;
     timer.start();
     while (ok && !cloned) {
@@ -333,6 +332,7 @@ bool CopyEngine::copyTree(const QString &source, const QString &destination,
                           qint64 *bytesCopiedOut, QString *error, const PauseFn &paused)
 {
     FileTree tree = FileTree::scan(source);
+    std::vector<char> copyBuffer(static_cast<size_t>(kBufferSize));
     if (!tree.ok) {
         if (error)
             *error = tree.error;
@@ -462,7 +462,7 @@ bool CopyEngine::copyTree(const QString &source, const QString &destination,
             }
 
             if (!copyRegularFile(source + QLatin1Char('/') + entry.relativePath, destPath, entry,
-                                 progress, &bytesCopied, cancelled, paused, error)) {
+                                 progress, &bytesCopied, cancelled, paused, copyBuffer, error)) {
                 ok = false;
                 break;
             }

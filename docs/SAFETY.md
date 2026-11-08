@@ -22,7 +22,7 @@ before modifying anything.
 ```
 Planned
   → copy game + prefix + shader/Workshop payload
-  → verify each component
+  → verify each component (full SHA-256 by default)
   → sync destination filesystems
   → revalidate source manifest + library database + processes
   → write destination manifest atomically
@@ -32,7 +32,9 @@ Planned
   → done
 ```
 
-**Source deletion only happens after the destination has been verified and synchronized.** The
+**Source deletion only happens after the destination has been verified and synchronized.** Full
+SHA-256 verification is the default. Quick verification is an explicit opt-out that compares paths,
+types and sizes only, and cannot detect same-size corruption; the GUI and CLI label that risk. The
 source manifest is removed only after the destination manifest is written and the library database
 is updated. Until that point the source installation remains valid.
 
@@ -67,9 +69,11 @@ Each operation writes to `~/.local/state/steam-library-mover/operations/<opId>/`
 Journal and log files are mode 0600. They contain local paths but no Steam credentials or
 environment data.
 
-Rollback removes destination components created by the operation, restores the VDF backup, and
-removes the destination manifest. It does **not** delete source data. Rollback is refused after the
-source manifest has been removed.
+Rollback validates the journal operation id, destination paths and backup path, restores the VDF
+backup first, and only then removes destination components and the destination manifest. It does
+**not** delete source data. If restoring the VDF fails, no destination data is removed. Rollback is
+refused after the source manifest has been removed, as root, or while Steam/game processes are
+running.
 
 ## Keep-source backup mode
 
@@ -122,8 +126,9 @@ batch requirement (including the safety margin) before queueing.
 - Only known components from the plan/journal are removed.
 - Top-level game directories must be real directories, not symlinks.
 - Symlinks are unlinked, never followed.
-- Source payloads are renamed to a hidden trash name and removed recursively without traversal
-  through symlinks.
+- Source payloads are renamed to a hidden trash name and then removed recursively without traversal
+  through symlinks. If the quarantine rename fails, cleanup stops with a warning instead of deleting
+  in place.
 - The compatdata library symlink itself is never removed.
 
 ## Known limitations
@@ -131,6 +136,9 @@ batch requirement (including the safety margin) before queueing.
 - Resume-after-crash is not fully implemented; rollback is supported before the source manifest is
   removed, otherwise Recovery reports what remains. Keep-source backups are a manual fallback.
 - Batch queues stop at the first failed move; unfinished games are not attempted. Re-plan them.
+- Unknown filesystem types are refused. `fuseblk` cannot be distinguished reliably from
+  NTFS/exFAT/FAT32 by mount type alone, so it is treated as Windows-compatible with an explicit
+  warning; verify the actual filesystem when using FUSE mounts.
 - The GUI never creates/registers a new Steam library or adds a new drive entry. It only updates the
   moved game's existing `apps` entry, with a VDF backup.
 - Free space is checked at plan time, not continuously during a copy.

@@ -17,9 +17,10 @@ APPDIR="$ROOT/AppDir"
 rm -rf "$BUILD_DIR" "$APPDIR"
 cmake -S "$ROOT" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_TESTING=OFF \
+    -DBUILD_TESTING=ON \
     -DCMAKE_INSTALL_PREFIX=/usr
 cmake --build "$BUILD_DIR" --parallel
+ctest --test-dir "$BUILD_DIR" --output-on-failure --timeout 60
 DESTDIR="$APPDIR" cmake --install "$BUILD_DIR"
 
 # The runtime mounts the AppImage with FUSE2; provide the standard fallback docs.

@@ -11,12 +11,15 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <unistd.h>
+
 using namespace slm;
 
 class DoctorTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void initTestCase();
     void createsMissingSymlink();
     void replacesEmptyDirectory();
     void refusesNonEmptyDirectory();
@@ -32,6 +35,12 @@ static Library makeLibrary(const QString &path)
     library.mount = testutil::makeMount(path);
     library.compatdata = inspectCompatData(library, MountTable::fromMounts({library.mount}));
     return library;
+}
+
+void DoctorTest::initTestCase()
+{
+    if (::geteuid() == 0)
+        QSKIP("Doctor write tests must run as a normal user");
 }
 
 void DoctorTest::createsMissingSymlink()

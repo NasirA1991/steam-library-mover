@@ -1571,8 +1571,8 @@ slm::MoveOptions MainWindow::optionsFromSettings() const
     slm::MoveOptions options;
     options.moveShaderCache = settings.value(QStringLiteral("components/shadercache"), true).toBool();
     options.moveWorkshop = settings.value(QStringLiteral("components/workshop"), true).toBool();
-    options.fullVerify = settings.value(QStringLiteral("verify/full"), false).toBool();
-    options.allowNtfsNative = true; // the GUI requires an explicit acknowledgement in review
+    options.fullVerify = settings.value(QStringLiteral("verify/full"), true).toBool();
+    options.allowNtfsNative = false; // set only after the review acknowledgement
     return options;
 }
 
@@ -1613,7 +1613,6 @@ void MainWindow::reviewMove()
     m_batchPlans.clear();
     m_planIndex = 0;
     m_batchOptions = optionsFromSettings();
-    m_batchOptions.allowNtfsNative = true;
     m_batchStopReason.clear();
     m_batchResults.clear();
 
@@ -2077,9 +2076,20 @@ void MainWindow::showBatchReview()
         layout->addWidget(issues);
     }
 
-    auto *fullVerify = new QCheckBox(QStringLiteral("Full checksum verification (slower)"), body);
+    auto *fullVerify = new QCheckBox(QStringLiteral("Full checksum verification (recommended)"), body);
     fullVerify->setChecked(m_batchOptions.fullVerify);
     layout->addWidget(fullVerify);
+    auto *quickVerifyRisk = new QLabel(
+        QStringLiteral("Warning: quick verification checks paths and sizes only and cannot detect "
+                       "same-size corruption."), body);
+    quickVerifyRisk->setWordWrap(true);
+    quickVerifyRisk->setVisible(!fullVerify->isChecked());
+    QPalette riskPalette = quickVerifyRisk->palette();
+    riskPalette.setColor(QPalette::WindowText, QColor(QStringLiteral("#d9534f")));
+    quickVerifyRisk->setPalette(riskPalette);
+    layout->addWidget(quickVerifyRisk);
+    connect(fullVerify, &QCheckBox::toggled, &dialog,
+            [quickVerifyRisk](bool checked) { quickVerifyRisk->setVisible(!checked); });
     auto *keepBackup = new QCheckBox(
         QStringLiteral("Keep a source backup (hidden .slm-backup-* folders)"), body);
     keepBackup->setChecked(m_batchOptions.keepSourceBackup);
@@ -2170,6 +2180,12 @@ void MainWindow::showBatchReview()
         plan.options.fullVerify = fullVerify->isChecked();
         plan.options.allowNtfsNative = true;
         plan.options.keepSourceBackup = keepBackup->isChecked();
+        // The core planner emitted this blocker because the GUI had not yet
+        // collected the acknowledgement. The user has now explicitly confirmed it.
+        for (int i = plan.issues.size() - 1; i >= 0; --i) {
+            if (plan.issues.at(i).code == QStringLiteral("windows-filesystem-ack"))
+                plan.issues.removeAt(i);
+        }
     }
     startMoveQueue(m_batchPlans);
 }
@@ -2992,9 +3008,9 @@ void MainWindow::showSettings()
         QStringLiteral("Compact game rows (smaller artwork and title, more games visible)"), &dialog);
     compact->setChecked(settings.value(QStringLiteral("appearance/compact"), true).toBool());
     layout->addWidget(compact);
-    auto *verify = new QCheckBox(QStringLiteral("Use full SHA-256 verification by default (slower)"),
-                                 &dialog);
-    verify->setChecked(settings.value(QStringLiteral("verify/full"), false).toBool());
+    auto *verify = new QCheckBox(
+        QStringLiteral("Use full SHA-256 verification by default (recommended)"), &dialog);
+    verify->setChecked(settings.value(QStringLiteral("verify/full"), true).toBool());
     auto *shader = new QCheckBox(QStringLiteral("Move shader cache when present"), &dialog);
     shader->setChecked(settings.value(QStringLiteral("components/shadercache"), true).toBool());
     auto *workshop = new QCheckBox(QStringLiteral("Move Workshop content and manifest when present"),

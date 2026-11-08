@@ -116,6 +116,8 @@ manifest has been updated. If something fails before that point, the source rema
 
 - **Safe review before moving** — shows source and destination, free space, payload size and every
   blocker before any file is touched.
+- **Full SHA-256 verification by default** — quick mode is an explicit opt-out and is labelled as
+  unable to detect same-size corruption.
 - **Proton-aware moves** — handles shared `compatdata` symlinks and avoids moving a prefix onto
   itself, which is the common cause of Steam's “content file locked” failure.
 - **NTFS preflight** — detects Windows-invalid names, reserved names, case collisions and
@@ -139,7 +141,10 @@ manifest has been updated. If something fails before that point, the source rema
 - The destination library must already be registered in Steam. Steam Library Mover does not create
   new Steam libraries or add new drive entries; use Steam's Storage settings for that.
 - A move updates only the moved game's existing Steam metadata, with a backup.
-- Network filesystems are refused.
+- Network and unknown filesystem types are refused. FUSE `fuseblk` mounts are ambiguous and carry
+  an explicit warning rather than being silently treated as NTFS.
+- Full SHA-256 verification is on by default. Quick verification is an explicit opt-out that checks
+  paths and sizes only.
 - Snap Steam is detected but unsupported.
 - Native Linux games on NTFS/exFAT are not officially supported by Steam. Proton games usually work,
   but executable permissions cannot be preserved on those filesystems.

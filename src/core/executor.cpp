@@ -115,7 +115,10 @@ bool removeSourcePayload(const QString &path, quint32 appId, const QString &dest
         if (::rename(QFile::encodeName(path).constData(), QFile::encodeName(trash).constData()) == 0) {
             return fsutil::removeTree(trash, error);
         }
-        // If renaming fails, fall through to a direct safe recursive delete.
+        if (error)
+            *error = QStringLiteral("Could not rename %1 to quarantine; source was not deleted: %2")
+                         .arg(path, QString::fromLocal8Bit(::strerror(errno)));
+        return false;
     }
     return fsutil::removeTree(path, error);
 }
@@ -487,13 +490,51 @@ bool MoveExecutor::rollbackOperation(const QJsonObject &journal, QString *error)
         return false;
     }
 
+    const QString opId = journal.value(QStringLiteral("opId")).toString();
+    if (!JournalStore::isValidOperationId(opId)) {
+        if (error)
+            *error = QStringLiteral("Refusing rollback: invalid operation id in journal");
+        return false;
+    }
+
+    const QString vdf = journal.value(QStringLiteral("vdf")).toString();
+    const QString destinationLibrary = journal.value(QStringLiteral("destinationLibrary")).toString();
+    if (destinationLibrary.isEmpty() || !QDir::isAbsolutePath(destinationLibrary)
+        || vdf.isEmpty() || !QDir::isAbsolutePath(vdf)
+        || QFileInfo(vdf).fileName() != QStringLiteral("libraryfolders.vdf")) {
+        if (error)
+            *error = QStringLiteral("Refusing rollback: malformed journal paths");
+        return false;
+    }
+    const QString steamRoot = QFileInfo(QFileInfo(vdf).absolutePath()).absolutePath();
+    const QString allowedLibrary = canonicalOrAbsolute(destinationLibrary);
+    const QString allowedRoot = canonicalOrAbsolute(steamRoot);
+    if (allowedLibrary.isEmpty() || allowedRoot.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("Refusing rollback: cannot resolve journal paths");
+        return false;
+    }
+
+    const auto allowedPath = [&](const QString &path) {
+        if (path.isEmpty())
+            return false;
+        const QString canonical = canonicalOrAbsolute(path);
+        return pathIsWithin(canonical, allowedLibrary) || pathIsWithin(canonical, allowedRoot);
+    };
+
     QStringList prefixes;
     QStringList gameDirs;
-    for (const QJsonValue &value : journal.value(QStringLiteral("components")).toArray()) {
+    const QJsonArray components = journal.value(QStringLiteral("components")).toArray();
+    for (const QJsonValue &value : components) {
         const QJsonObject component = value.toObject();
         const int kind = component.value(QStringLiteral("kind")).toInt();
         const QString source = component.value(QStringLiteral("source")).toString();
         const QString destination = component.value(QStringLiteral("destination")).toString();
+        if (!destination.isEmpty() && !allowedPath(destination)) {
+            if (error)
+                *error = QStringLiteral("Refusing rollback: journal path escapes the destination/Steam root");
+            return false;
+        }
         if (kind == static_cast<int>(ComponentKind::Prefix)) {
             if (!source.isEmpty())
                 prefixes.append(source);
@@ -531,12 +572,29 @@ bool MoveExecutor::rollbackOperation(const QJsonObject &journal, QString *error)
         return false;
     }
 
-    const QString opId = journal.value(QStringLiteral("opId")).toString();
     const QString backup = journal.value(QStringLiteral("backupDir")).toString();
-    const QString vdf = journal.value(QStringLiteral("vdf")).toString();
+    const QString operationsRoot = canonicalOrAbsolute(JournalStore::operationsDir());
+    if (backup.isEmpty()
+        || !pathIsWithin(canonicalOrAbsolute(backup), operationsRoot)) {
+        if (error)
+            *error = QStringLiteral("Refusing rollback: journal backup path escapes the state directory");
+        return false;
+    }
     const QString vdfBackup = joinPath(backup, QStringLiteral("libraryfolders.vdf"));
 
-    const QJsonArray components = journal.value(QStringLiteral("components")).toArray();
+    // Restore the library database first. If this fails, leave all destination
+    // data untouched: Steam must still recognize the source library.
+    if (!QFileInfo::exists(vdfBackup)) {
+        if (error)
+            *error = QStringLiteral("Refusing rollback: the libraryfolders.vdf backup is missing");
+        return false;
+    }
+    const auto data = fsutil::readFile(vdfBackup, 32 * 1024 * 1024, error);
+    if (!data)
+        return false;
+    if (!fsutil::writeFileAtomic(vdf, *data, 0644, error))
+        return false;
+
     QStringList failures;
     for (const QJsonValue &value : components) {
         const QJsonObject component = value.toObject();
@@ -563,15 +621,11 @@ bool MoveExecutor::rollbackOperation(const QJsonObject &journal, QString *error)
     }();
     const QString destinationManifest =
         manifestComponent.value(QStringLiteral("destination")).toString();
-    if (!destinationManifest.isEmpty())
-        QFile::remove(destinationManifest);
-
-    if (!vdf.isEmpty() && QFileInfo::exists(vdfBackup)) {
-        const auto data = fsutil::readFile(vdfBackup, 32 * 1024 * 1024, error);
-        if (!data)
-            return false;
-        if (!fsutil::writeFileAtomic(vdf, *data, 0644, error))
-            return false;
+    if (!destinationManifest.isEmpty() && QFileInfo::exists(destinationManifest)
+        && !QFile::remove(destinationManifest)) {
+        if (error)
+            *error = QStringLiteral("Cannot remove the destination manifest");
+        return false;
     }
 
     if (!failures.isEmpty()) {
@@ -593,5 +647,4 @@ bool MoveExecutor::rollbackOperation(const QJsonObject &journal, QString *error)
         error->clear();
     return true;
 }
-
 } // namespace slm

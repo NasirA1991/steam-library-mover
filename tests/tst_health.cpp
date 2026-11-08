@@ -13,6 +13,8 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <unistd.h>
+
 using namespace slm;
 
 class HealthTest : public QObject
@@ -26,6 +28,8 @@ private slots:
 
 void HealthTest::initTestCase()
 {
+    if (::geteuid() == 0)
+        QSKIP("Health quarantine tests must run as a normal user");
     slm::setProcessInspectorForTesting([](const QStringList &, const QStringList &) { return slm::ProcessUsage{}; });
 }
 

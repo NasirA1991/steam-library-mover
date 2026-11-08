@@ -48,6 +48,18 @@ bool ensure(QString *error)
     return ok;
 }
 
+
+bool isValidOperationId(const QString &opId)
+{
+    if (opId.isEmpty() || opId.size() > 128)
+        return false;
+    for (const QChar c : opId) {
+        if (!c.isLetterOrNumber() && c != QLatin1Char('-') && c != QLatin1Char('_'))
+            return false;
+    }
+    return true;
+}
+
 QString newOperationId()
 {
     return QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd'T'HHmmss'Z'-"))
@@ -104,6 +116,11 @@ QList<QJsonObject> listOperations()
 
 bool removeOperation(const QString &opId, QString *error)
 {
+    if (!isValidOperationId(opId)) {
+        if (error)
+            *error = QStringLiteral("Invalid operation id");
+        return false;
+    }
     return fsutil::removeTree(operationDir(opId), error);
 }
 

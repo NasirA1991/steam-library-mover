@@ -300,9 +300,16 @@ MovePlan MovePlanner::plan(const SteamScan &scan, quint32 appId, const QString &
                  QStringLiteral("The destination library is not writable"));
     }
     if (dest->mount.fsClass == FsClass::Other) {
-        addIssue(plan, Severity::Warning, QStringLiteral("unknown-filesystem"),
-                 QStringLiteral("The destination filesystem type is not known"),
-                 dest->mount.describe());
+        addIssue(plan, Severity::Blocker, QStringLiteral("unknown-filesystem"),
+                 QStringLiteral("The destination filesystem type is not supported"),
+                 QStringLiteral("%1. Use a recognized native, NTFS or exFAT filesystem.")
+                     .arg(dest->mount.describe()));
+    }
+    if (dest->mount.fsType.compare(QStringLiteral("fuseblk"), Qt::CaseInsensitive) == 0) {
+        addIssue(plan, Severity::Warning, QStringLiteral("fuseblk-ambiguous"),
+                 QStringLiteral("The destination is a FUSE block filesystem"),
+                 QStringLiteral("fuseblk can be NTFS, exFAT or FAT32; filesystem-specific limits "
+                                "cannot be determined reliably from the mount type."));
     }
     if (dest->mount.isWindowsCompatible()) {
         Issue issue{Severity::Warning, QStringLiteral("windows-filesystem"),
@@ -719,7 +726,14 @@ bool MovePlanner::revalidate(const MovePlan &plan, const MountTable &mounts, QSt
     if (usage.gameInUse)
         return fail(QStringLiteral("A process started using the game directory"));
 
-    Q_UNUSED(mounts);
+    const MountInfo currentSource = mounts.forPath(plan.sourceLibraryPath);
+    const MountInfo currentDest = mounts.forPath(plan.destLibraryPath);
+    if (currentSource.readOnly || currentDest.readOnly)
+        return fail(QStringLiteral("A source or destination library is now mounted read-only"));
+    if (currentSource.isNetwork() || currentDest.isNetwork())
+        return fail(QStringLiteral("A source or destination library is now on a network filesystem"));
+    if (currentDest.freeBytes > 0 && currentDest.freeBytes < plan.totalBytes)
+        return fail(QStringLiteral("The destination no longer has enough free space"));
     return true;
 }
 

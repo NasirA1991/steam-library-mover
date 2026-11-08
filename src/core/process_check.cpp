@@ -135,15 +135,16 @@ ProcessUsage inspectProcesses(const QStringList &prefixes, const QStringList &ga
 
         const QString first = arguments.value(0);
         const QString firstBase = baseName(first);
-        bool steamProcess = isSteamProcessName(firstBase);
-        if (!steamProcess) {
-            for (const QString &argument : arguments) {
-                if (isSteamProcessName(baseName(argument))) {
-                    steamProcess = true;
-                    break;
-                }
-            }
-        }
+        // Match only the executable or the kernel-recorded process name. Scanning
+        // every argument makes `less steam` or `grep steam` look like Steam.
+        QString comm;
+        QFile commFile(procPath + QStringLiteral("/comm"));
+        if (commFile.open(QIODevice::ReadOnly))
+            comm = QString::fromUtf8(commFile.read(256)).trimmed();
+        const QString executableBase = baseName(executable);
+        const bool steamProcess = isSteamProcessName(executableBase)
+            || isSteamProcessName(comm)
+            || isSteamProcessName(firstBase);
 
         if (steamProcess) {
             usage.steamRunning = true;

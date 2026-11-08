@@ -26,6 +26,8 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <unistd.h>
+
 class GuiTest : public QObject
 {
     Q_OBJECT
@@ -40,6 +42,8 @@ private slots:
 
 void GuiTest::initTestCase()
 {
+    if (::geteuid() == 0)
+        QSKIP("GUI move tests must run as a normal user");
     slm::setProcessInspectorForTesting([](const QStringList &, const QStringList &) { return slm::ProcessUsage{}; });
 }
 
@@ -316,6 +320,7 @@ void GuiTest::batchMoveFlow()
                 if (start && start->isEnabled()) {
                     start->click();
                     reviewAccepted = true;
+
                 }
             }
             if (auto *message = qobject_cast<QMessageBox *>(dialog);

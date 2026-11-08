@@ -181,7 +181,7 @@ struct MoveOptions
 {
     bool moveShaderCache = true;
     bool moveWorkshop = true;
-    bool fullVerify = false;
+    bool fullVerify = true;
     bool allowNtfsNative = false; // explicit acknowledgement that native titles may not run
     bool quitSteam = false;       // explicit permission to ask Steam to quit
     bool keepSourceBackup = false; // leave moved source payload as a hidden backup

@@ -32,6 +32,8 @@ private slots:
     void sharedPrefixMove();
     void relativeSymlinkMove();
     void doneWithWarningsIsFinished();
+    void fullVerificationRejectsSameSizeCorruption();
+    void rollbackRejectsUnsafeJournal();
     void prefixMoveToRealDirectory();
     void cancelAndRollback();
     void revalidateRejectsChangedMount();
@@ -46,6 +48,8 @@ private slots:
 
 void MoverTest::initTestCase()
 {
+    if (::geteuid() == 0)
+        QSKIP("Move/rollback tests must run as a normal user");
     setProcessInspectorForTesting([](const QStringList &, const QStringList &) { return ProcessUsage{}; });
     // Keep all journal/log/backup data inside the test temporary directory.
     qputenv("SLM_STATE_DIR", QDir::tempPath().toUtf8() + "/slm-test-state-"
@@ -176,6 +180,92 @@ void MoverTest::doneWithWarningsIsFinished()
     QVERIFY(MoveExecutor::unfinishedOperations().isEmpty());
 }
 
+
+void MoverTest::fullVerificationRejectsSameSizeCorruption()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    const QString source = temp.path() + QStringLiteral("/source");
+    const QString destination = temp.path() + QStringLiteral("/destination");
+    QVERIFY(QDir().mkpath(source));
+    QFile file(source + QStringLiteral("/game.bin"));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write(QByteArray(1024 * 1024, 'A')), 1024 * 1024);
+    file.close();
+
+    QString error;
+    QVERIFY2(CopyEngine::copyTree(source, destination, {}, {}, nullptr, &error),
+             qPrintable(error));
+    QFile corrupted(destination + QStringLiteral("/game.bin"));
+    QVERIFY(corrupted.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QCOMPARE(corrupted.write(QByteArray(1024 * 1024, 'B')), 1024 * 1024);
+    corrupted.close();
+
+    QVERIFY2(!CopyEngine::verifyTree(source, destination, true, &error), qPrintable(error));
+    QVERIFY(error.contains(QStringLiteral("Checksum mismatch")));
+    // Quick verification is intentionally only an explicit opt-out; it cannot
+    // detect this corruption.
+    QVERIFY(CopyEngine::verifyTree(source, destination, false, nullptr));
+    QVERIFY(MoveOptions{}.fullVerify);
+}
+
+
+void MoverTest::rollbackRejectsUnsafeJournal()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    qputenv("SLM_STATE_DIR", (temp.path() + QStringLiteral("/state")).toUtf8());
+    QString error;
+    QVERIFY2(JournalStore::ensure(&error), qPrintable(error));
+    const QString library = temp.path() + QStringLiteral("/libraryB");
+    const QString outside = temp.path() + QStringLiteral("/outside");
+    QVERIFY(QDir().mkpath(library + QStringLiteral("/steamapps")));
+    QVERIFY(QDir().mkpath(outside));
+    QVERIFY(testutil::writeFile(outside + QStringLiteral("/keep.txt"), QByteArray("keep")));
+    QVERIFY(testutil::writeFile(library + QStringLiteral("/steamapps/appmanifest_1.acf"),
+                                QByteArray("manifest")));
+    QVERIFY(testutil::writeFile(library + QStringLiteral("/steamapps/libraryfolders.vdf"),
+                                QByteArray("vdf")));
+    QVERIFY(testutil::writeFile(library + QStringLiteral("/steamapps/common/game.dat"),
+                                QByteArray("dest")));
+
+    QJsonObject journal;
+    journal.insert(QStringLiteral("opId"), QStringLiteral("unsafe-op"));
+    journal.insert(QStringLiteral("state"), QStringLiteral("in-progress"));
+    journal.insert(QStringLiteral("phase"), QStringLiteral("CopyingGame"));
+    journal.insert(QStringLiteral("manifest"), library + QStringLiteral("/steamapps/appmanifest_1.acf"));
+    journal.insert(QStringLiteral("vdf"), library + QStringLiteral("/steamapps/libraryfolders.vdf"));
+    journal.insert(QStringLiteral("destinationLibrary"), library);
+    journal.insert(QStringLiteral("backupDir"), JournalStore::backupDir(QStringLiteral("unsafe-op")));
+    journal.insert(QStringLiteral("components"), QJsonArray{
+        QJsonObject{{QStringLiteral("kind"), static_cast<int>(ComponentKind::Game)},
+                    {QStringLiteral("source"), temp.path() + QStringLiteral("/source")},
+                    {QStringLiteral("destination"), outside + QStringLiteral("/keep.txt")}},
+    });
+    QVERIFY(!MoveExecutor::rollbackOperation(journal, &error));
+    QVERIFY(error.contains(QStringLiteral("escapes")));
+    QVERIFY(QFileInfo::exists(outside + QStringLiteral("/keep.txt")));
+
+    journal.insert(QStringLiteral("opId"), QStringLiteral("../unsafe"));
+    QVERIFY(!MoveExecutor::rollbackOperation(journal, &error));
+    QVERIFY(QFileInfo::exists(outside + QStringLiteral("/keep.txt")));
+
+    // If the VDF backup cannot be restored, nothing at the destination may be
+    // deleted first. The source library must remain authoritative.
+    QJsonObject vdfFailure = journal;
+    vdfFailure.insert(QStringLiteral("opId"), QStringLiteral("vdf-failure"));
+    vdfFailure.insert(QStringLiteral("backupDir"), JournalStore::backupDir(QStringLiteral("vdf-failure")));
+    vdfFailure.insert(QStringLiteral("phase"), QStringLiteral("CopyingGame"));
+    vdfFailure.insert(QStringLiteral("components"), QJsonArray{
+        QJsonObject{{QStringLiteral("kind"), static_cast<int>(ComponentKind::Game)},
+                    {QStringLiteral("source"), temp.path() + QStringLiteral("/source")},
+                    {QStringLiteral("destination"), library + QStringLiteral("/steamapps/common/game.dat")}},
+    });
+    QVERIFY(!MoveExecutor::rollbackOperation(vdfFailure, &error));
+    QVERIFY(error.contains(QStringLiteral("backup")));
+    QVERIFY(QFileInfo::exists(library + QStringLiteral("/steamapps/common/game.dat")));
+}
+
 void MoverTest::prefixMoveToRealDirectory()
 {
     QTemporaryDir temp;
@@ -260,6 +350,17 @@ void MoverTest::revalidateRejectsChangedMount()
     plan.snapshot.destinationDevice++;
     QVERIFY(!MovePlanner::revalidate(plan, mounts, &error));
     QVERIFY(error.contains(QStringLiteral("filesystem")));
+
+    MountInfo rootMount = testutil::makeMount(temp.path());
+    MountInfo destMount = testutil::makeMount(destLibrary);
+    const MountTable currentMounts = MountTable::fromMounts({rootMount, destMount});
+    MovePlan fresh = MovePlanner::plan(scan, 12345, destLibrary, options, currentMounts, &error);
+    QVERIFY(error.isEmpty());
+    MountInfo readOnlyDest = destMount;
+    readOnlyDest.readOnly = true;
+    const MountTable readOnlyMounts = MountTable::fromMounts({rootMount, readOnlyDest});
+    QVERIFY(!MovePlanner::revalidate(fresh, readOnlyMounts, &error));
+    QVERIFY(error.contains(QStringLiteral("read-only")));
 }
 
 void MoverTest::keepSourceBackup()

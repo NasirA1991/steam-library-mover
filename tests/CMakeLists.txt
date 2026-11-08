@@ -46,8 +46,11 @@ target_compile_options(tst_artwork PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME tst_artwork COMMAND tst_artwork)
 set_tests_properties(tst_artwork PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/test-tmp)
+
 add_executable(tst_gui tst_gui.cpp)
 target_link_libraries(tst_gui PRIVATE slm_gui Qt6::Test)
 target_include_directories(tst_gui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME tst_gui COMMAND tst_gui)
-set_tests_properties(tst_gui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+set_tests_properties(tst_gui PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;TMPDIR=${CMAKE_CURRENT_BINARY_DIR}/test-tmp")

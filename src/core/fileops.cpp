@@ -122,8 +122,15 @@ bool ensureDir(const QString &path, QString *error)
     return true;
 }
 
-bool removeTree(const QString &path, QString *error)
+namespace {
+
+bool removeTreeAt(const QString &path, int depth, QString *error)
 {
+    if (depth > 256) {
+        if (error)
+            *error = QStringLiteral("Directory tree is too deep at %1").arg(path);
+        return false;
+    }
     struct stat st {};
     const QByteArray encodedPath = QFile::encodeName(path);
     if (::lstat(encodedPath.constData(), &st) != 0) {
@@ -157,7 +164,7 @@ bool removeTree(const QString &path, QString *error)
         if (name == "." || name == "..")
             continue;
         QString childError;
-        if (!removeTree(path + QLatin1Char('/') + QFile::decodeName(name), &childError)) {
+        if (!removeTreeAt(path + QLatin1Char('/') + QFile::decodeName(name), depth + 1, &childError)) {
             if (ok) {
                 ok = false;
                 firstError = childError;
@@ -175,6 +182,12 @@ bool removeTree(const QString &path, QString *error)
     return ok;
 }
 
+} // namespace
+
+bool removeTree(const QString &path, QString *error)
+{
+    return removeTreeAt(path, 0, error);
+}
 
 std::optional<QByteArray> readSymlinkTarget(const QString &path, QString *error)
 {

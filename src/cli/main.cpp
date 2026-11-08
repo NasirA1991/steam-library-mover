@@ -18,6 +18,8 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLockFile>
+#include <QStandardPaths>
 #include <QTextStream>
 #include <QThread>
 
@@ -87,7 +89,8 @@ int commandList(const QCommandLineParser &parser, const SteamRoot &root, const M
         err << error << '\n';
         return 1;
     }
-    if (parser.isSet(QStringLiteral("json"))) {
+    const bool jsonMode = parser.isSet(QStringLiteral("json"));
+    if (jsonMode) {
         QJsonObject object;
         object.insert(QStringLiteral("root"), scan.root.path);
         object.insert(QStringLiteral("kind"), scan.root.kindName());
@@ -145,7 +148,7 @@ MoveOptions optionsFromParser(const QCommandLineParser &parser)
     MoveOptions options;
     options.moveShaderCache = !parser.isSet(QStringLiteral("no-shadercache"));
     options.moveWorkshop = !parser.isSet(QStringLiteral("no-workshop"));
-    options.fullVerify = parser.value(QStringLiteral("verify")) == QStringLiteral("full");
+    options.fullVerify = parser.value(QStringLiteral("verify")) != QStringLiteral("quick");
     options.allowNtfsNative = parser.isSet(QStringLiteral("allow-ntfs"));
     options.quitSteam = parser.isSet(QStringLiteral("quit-steam"));
     options.keepSourceBackup = parser.isSet(QStringLiteral("keep-source"));
@@ -189,7 +192,8 @@ int commandPlan(const QCommandLineParser &parser, const SteamRoot &root, const M
         return 1;
     }
 
-    if (parser.isSet(QStringLiteral("json"))) {
+    const bool jsonMode = parser.isSet(QStringLiteral("json"));
+    if (jsonMode) {
         QJsonObject object;
         object.insert(QStringLiteral("appid"), static_cast<qint64>(plan.game.appId));
         object.insert(QStringLiteral("name"), plan.game.name);
@@ -240,24 +244,25 @@ int commandPlan(const QCommandLineParser &parser, const SteamRoot &root, const M
     if (!requireClosedSteam(root))
         return 2;
 
+    QTextStream &human = jsonMode ? err : out;
     MoveExecutor executor;
-    const MoveResult result = executor.execute(plan, mounts, [](const MoveProgress &progress) {
-        out << '\r' << phaseName(progress.phase) << " " << progress.message;
+    const MoveResult result = executor.execute(plan, mounts, [&human](const MoveProgress &progress) {
+        human << '\r' << phaseName(progress.phase) << " " << progress.message;
         if (progress.bytesTotal > 0) {
-            out << " " << (progress.bytesDone * 100 / progress.bytesTotal) << "%";
+            human << " " << (progress.bytesDone * 100 / progress.bytesTotal) << "%";
         }
-        out.flush();
+        human.flush();
     });
-    out << '\n';
+    human << '\n';
     if (!result.ok) {
         err << result.error << '\n';
         if (!result.journalPath.isEmpty())
             err << "Journal: " << result.journalPath << '\n';
         return 3;
     }
-    out << "Moved successfully. Start Steam to refresh the library.\n";
+    human << "Moved successfully. Start Steam to refresh the library.\n";
     for (const QString &backup : result.backupPaths)
-        out << "Source backup: " << backup << '\n';
+        human << "Source backup: " << backup << '\n';
     for (const QString &warning : result.cleanupErrors)
         err << "Cleanup warning: " << warning << '\n';
     return 0;
@@ -272,7 +277,8 @@ int commandDoctor(const QCommandLineParser &parser, const SteamRoot &root, const
         return 1;
     }
     const QVector<Issue> issues = NtfsDoctor::inspect(scan);
-    if (parser.isSet(QStringLiteral("json"))) {
+    const bool jsonMode = parser.isSet(QStringLiteral("json"));
+    if (jsonMode) {
         QJsonObject object;
         object.insert(QStringLiteral("root"), scan.root.path);
         object.insert(QStringLiteral("issues"), issuesToJson(issues));
@@ -439,6 +445,10 @@ int commandRecover(const QCommandLineParser &parser)
         err << "Use --list or --rollback <opId>.\n";
         return 1;
     }
+    if (!JournalStore::isValidOperationId(opId)) {
+        err << "Invalid operation id: " << opId << '\n';
+        return 1;
+    }
     const QJsonObject journal = JournalStore::readObject(JournalStore::journalPath(opId));
     if (journal.isEmpty()) {
         err << "Operation not found: " << opId << '\n';
@@ -462,6 +472,16 @@ int main(int argc, char **argv)
     app.setApplicationVersion(QString::fromLatin1(SLM_VERSION));
     app.setOrganizationName(QStringLiteral("SteamLibraryMover"));
 
+    QString runtimeDir = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
+    if (runtimeDir.isEmpty() || !QFileInfo(runtimeDir).isWritable())
+        runtimeDir = QDir::tempPath();
+    QLockFile instanceLock(runtimeDir + QStringLiteral("/steam-library-mover.lock"));
+    instanceLock.setStaleLockTime(30000);
+    if (!instanceLock.tryLock(200)) {
+        err << "Steam Library Mover is already running (GUI or CLI).\n";
+        return 1;
+    }
+
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral(
         "Move installed Steam games between Steam libraries safely. Steam must be closed."));
@@ -475,8 +495,9 @@ int main(int argc, char **argv)
                       QStringLiteral("path")});
     parser.addOption({QStringLiteral("dry-run"), QStringLiteral("Do not modify anything")});
     parser.addOption({QStringLiteral("yes"), QStringLiteral("Confirm a move or health quarantine")});
-    parser.addOption({QStringLiteral("verify"), QStringLiteral("quick or full verification"),
-                      QStringLiteral("mode"), QStringLiteral("quick")});
+    parser.addOption({QStringLiteral("verify"),
+                      QStringLiteral("full (default) or quick (size/path only; not recommended)"),
+                      QStringLiteral("mode"), QStringLiteral("full")});
     parser.addOption({QStringLiteral("no-shadercache"), QStringLiteral("Do not move shader cache")});
     parser.addOption({QStringLiteral("no-workshop"), QStringLiteral("Do not move workshop content")});
     parser.addOption({QStringLiteral("allow-ntfs"), QStringLiteral("Acknowledge Windows-filesystem risks")});
@@ -493,6 +514,11 @@ int main(int argc, char **argv)
 
     const QStringList positional = parser.positionalArguments();
     const QString command = positional.value(0, QStringLiteral("list"));
+    const QString verifyMode = parser.value(QStringLiteral("verify"));
+    if (verifyMode != QStringLiteral("full") && verifyMode != QStringLiteral("quick")) {
+        err << "Invalid --verify value: " << verifyMode << " (use full or quick)\n";
+        return 1;
+    }
 
     QStringList notes;
     const SteamRoot root = chooseRoot(parser.value(QStringLiteral("steam-root")), notes);

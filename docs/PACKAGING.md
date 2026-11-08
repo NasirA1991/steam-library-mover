@@ -19,7 +19,7 @@ Release artifacts are built by GitHub Actions when a `v*` tag is pushed. The wor
 - `steam-library-mover-*.tar.gz` — source archive generated from the tag.
 - `SHA256SUMS` — checksums for the release files.
 
-The release is marked as a GitHub prerelease while the project remains `0.x`.
+The current release is published as the latest GitHub release so the README `/releases/latest` AppImage link works. This is separate from the project maturity: `0.x` is still alpha and the README says so.
 
 ## AppImage
 
@@ -49,19 +49,20 @@ Recipes:
 
 Maintainer: **Nasir A <evilleader91@gmail.com>**.
 
-The release workflow runs `updpkgsums` and builds the package in `archlinux:latest`. The repository
-template keeps `sha256sums=('SKIP')` so local iteration and CI can regenerate the checksum from the
-tagged source. Before uploading the stable recipe to AUR, run:
+The release workflow runs `updpkgsums`, builds the package in `archlinux:latest`, and the separate
+[`aur.yml`](../.github/workflows/aur.yml) workflow publishes the recipe to AUR on a `v*` tag or a
+manual dispatch. The repository keeps the checksum for the current release and regenerates it from
+the tagged source at release time. To reproduce the recipe locally:
 
 ```bash
 cd packaging/aur
 updpkgsums
-makepkg --nodeps --nocheck
+makepkg --nodeps
 namcap *.pkg.tar.zst
 ```
 
-Publishing to AUR is a separate operation and requires an AUR account/SSH key; GitHub Actions only
-builds and validates the package.
+AUR publishing is automated by GitHub Actions using the `AUR_SSH_PRIVATE_KEY` and
+`AUR_KNOWN_HOSTS` repository secrets.
 
 ## Flatpak (experimental Actions artifact)
 
@@ -97,7 +98,7 @@ Flathub submission also needs a tagged source (not `type: dir`), screenshots in 
 - [ ] Manual smoke test completed on a writable Steam library.
 - [ ] AppImage extracted and launched.
 - [ ] Arch package installed and launched.
-- [ ] AUR checksums regenerated for the stable recipe.
+- [ ] AUR recipe checksum regenerated and published by the AUR workflow.
 - [ ] Flatpak gate explicitly recorded; only an experimental Actions artifact is produced.
 - [ ] `SHA256SUMS` and release notes attached.
 - [ ] No personal paths, tokens, build trees or screenshots containing private data are committed.

@@ -82,7 +82,7 @@ jobs:
             cd "$1"
             sed -i "s/^pkgver=.*/pkgver=$2/" PKGBUILD
             updpkgsums
-            makepkg --nodeps --nocheck --force
+            makepkg --nodeps --force
           ' _ "$PWD/packaging/aur" "$version"
           package=$(find packaging/aur -maxdepth 1 -name '*.pkg.tar.zst' -print -quit)
           test -n "$package"

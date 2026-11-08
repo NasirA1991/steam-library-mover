@@ -68,8 +68,13 @@ QString reservedDeviceReason(const QString &name)
 }
 
 bool scanDirectory(const QString &absolutePath, const QString &relativePath, FileTree &tree,
-                   QSet<QString> &seenInodes, QString *error)
+                   QSet<QString> &seenInodes, int depth, QString *error)
 {
+    if (depth > 256) {
+        if (error)
+            *error = QStringLiteral("Directory tree is too deep at %1").arg(absolutePath);
+        return false;
+    }
     DIR *dir = ::opendir(QFile::encodeName(absolutePath).constData());
     if (!dir) {
         if (error)
@@ -126,7 +131,7 @@ bool scanDirectory(const QString &absolutePath, const QString &relativePath, Fil
             fileEntry.type = FileEntryType::Directory;
             tree.directoryCount++;
             tree.entries.append(fileEntry);
-            if (!scanDirectory(childAbsolute, childRelative, tree, seenInodes, error)) {
+            if (!scanDirectory(childAbsolute, childRelative, tree, seenInodes, depth + 1, error)) {
                 ok = false;
                 break;
             }
@@ -177,7 +182,7 @@ FileTree FileTree::scan(const QString &rootPath)
     }
 
     QSet<QString> seenInodes;
-    tree.ok = scanDirectory(tree.root, QString(), tree, seenInodes, &tree.error);
+    tree.ok = scanDirectory(tree.root, QString(), tree, seenInodes, 0, &tree.error);
     return tree;
 }
 
