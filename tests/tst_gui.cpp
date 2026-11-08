@@ -21,17 +21,23 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSettings>
 #include <QTableView>
 #include <QToolButton>
 #include <QTimer>
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <memory>
+
 #include <unistd.h>
 
 class GuiTest : public QObject
 {
     Q_OBJECT
+private:
+    std::unique_ptr<QTemporaryDir> m_configDir;
+
 private slots:
     void initTestCase();
     void startupAndSelection();
@@ -45,6 +51,14 @@ void GuiTest::initTestCase()
 {
     if (::geteuid() == 0)
         QSKIP("GUI move tests must run as a normal user");
+    m_configDir = std::make_unique<QTemporaryDir>();
+    QVERIFY(m_configDir->isValid());
+    qputenv("XDG_CONFIG_HOME", m_configDir->path().toUtf8());
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_configDir->path());
+    QSettings::setPath(QSettings::NativeFormat, QSettings::UserScope, m_configDir->path());
+    QCoreApplication::setOrganizationName(QStringLiteral("SteamLibraryMoverTests"));
+    QCoreApplication::setApplicationName(QStringLiteral("tst_gui"));
     slm::setProcessInspectorForTesting([](const QStringList &, const QStringList &) { return slm::ProcessUsage{}; });
 }
 
