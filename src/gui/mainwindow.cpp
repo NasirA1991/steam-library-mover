@@ -2076,9 +2076,16 @@ void MainWindow::showBatchReview()
         layout->addWidget(issues);
     }
 
-    auto *fullVerify = new QCheckBox(QStringLiteral("Full checksum verification (recommended)"), body);
+    auto *fullVerify = new QCheckBox(
+        QStringLiteral("Full SHA-256 verification (default; uncheck for quick mode)"), body);
     fullVerify->setChecked(m_batchOptions.fullVerify);
     layout->addWidget(fullVerify);
+    auto *verifyNote = new QLabel(
+        QStringLiteral("Full verification is optional and does not gate Start; it only controls how "
+                       "deeply copied files are checked."), body);
+    verifyNote->setWordWrap(true);
+    verifyNote->setStyleSheet(QStringLiteral("color: %1; font-size: 10px;").arg(muted));
+    layout->addWidget(verifyNote);
     auto *quickVerifyRisk = new QLabel(
         QStringLiteral("Warning: quick verification checks paths and sizes only and cannot detect "
                        "same-size corruption."), body);
@@ -2098,7 +2105,7 @@ void MainWindow::showBatchReview()
     if (ntfsWarning) {
         ack = new QCheckBox(
             QStringLiteral("I understand the destination is a Windows-compatible filesystem; "
-                           "native Linux games may not run there."),
+                           "native Linux games may not run there. (Required for this destination.)"),
             body);
         layout->addWidget(ack);
     }
@@ -2109,6 +2116,11 @@ void MainWindow::showBatchReview()
     reviewNote->setStyleSheet(
         QStringLiteral("color: %1; font-size: 10px;").arg(muted));
     footer->addWidget(reviewNote);
+    auto *startHint = new QLabel(&dialog);
+    startHint->setWordWrap(true);
+    startHint->setStyleSheet(QStringLiteral("color: %1; font-size: 10px;").arg(muted));
+    startHint->setVisible(false);
+    footer->addWidget(startHint);
     if (anyBlocker) {
         auto *why = new QPushButton(QStringLiteral("Why blocked?"), &dialog);
         why->setAutoDefault(false);
@@ -2150,6 +2162,15 @@ void MainWindow::showBatchReview()
 
     const auto updateEnabled = [&]() {
         okButton->setEnabled(!anyBlocker && (!ack || ack->isChecked()));
+        if (anyBlocker) {
+            startHint->setText(QStringLiteral("Start is disabled: resolve the blocker above."));
+        } else if (ack && !ack->isChecked()) {
+            startHint->setText(
+                QStringLiteral("Start is disabled: tick the NTFS acknowledgement below."));
+        } else {
+            startHint->clear();
+        }
+        startHint->setVisible(!startHint->text().isEmpty());
     };
     updateEnabled();
     connect(cancelButton, &QPushButton::clicked, &dialog, &QDialog::reject);

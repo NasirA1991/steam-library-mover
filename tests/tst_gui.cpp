@@ -9,6 +9,7 @@
 #include "test_helpers.h"
 
 #include <QApplication>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
 #include <QDragEnterEvent>
