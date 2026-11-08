@@ -1,9 +1,9 @@
-# Steam Library Mover v0.1.6 — public alpha
+# Steam Library Mover v0.1.7 — public alpha
 
 **This is an alpha release of a tool that moves real game files. Read the safety notes and keep an
 independent backup of irreplaceable data.**
 
-This is a safety update. Full SHA-256 verification is now the default; rollback restores metadata before deleting destination data and validates journal paths; NTFS acknowledgement is enforced by the core; unknown filesystems are refused; and release builds run the test suite.
+This release fixes the shader-cache collision that blocked moving a game back to a library that still had its old cache. The existing destination cache is now kept and the source cache is left behind with a warning. It also clarifies that full verification is optional and explains why Start is disabled.
 
 ## Highlights
 

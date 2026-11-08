@@ -59,6 +59,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.7" date="2026-11-08">
+      <description>
+        <p>Keeps an existing destination shader cache instead of blocking the move, clarifies that full verification is optional, explains why Start is disabled, and isolates GUI test settings from the user configuration.</p>
+      </description>
+    </release>
     <release version="0.1.6" date="2026-11-08">
       <description>
         <p>Safety update: full checksum verification is now the default, rollback restores metadata before deleting data and validates journal paths, NTFS acknowledgement is enforced in the core, and release builds run the test suite.</p>

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.7 — 2026-11-08
+
+- An existing destination shader cache no longer blocks the move. The existing
+  cache is kept, the source cache is left behind, and the review shows a warning.
+- Full SHA-256 verification is labelled as the default rather than mandatory;
+  unchecking it does not gate Start.
+- The review dialog now explains why Start is disabled.
+- GUI tests isolate `QSettings` from the real user configuration.
+
 ## 0.1.6 — 2026-11-08
 
 - Full SHA-256 verification is now the default. Quick mode is an explicit opt-out
