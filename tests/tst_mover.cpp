@@ -33,6 +33,7 @@ private slots:
     void relativeSymlinkMove();
     void doneWithWarningsIsFinished();
     void fullVerificationRejectsSameSizeCorruption();
+    void shaderCacheDestinationExistsIsWarning();
     void rollbackRejectsUnsafeJournal();
     void prefixMoveToRealDirectory();
     void cancelAndRollback();
@@ -266,6 +267,40 @@ void MoverTest::rollbackRejectsUnsafeJournal()
     QVERIFY(QFileInfo::exists(library + QStringLiteral("/steamapps/common/game.dat")));
 }
 
+
+void MoverTest::shaderCacheDestinationExistsIsWarning()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    qputenv("SLM_STATE_DIR", (temp.path() + QStringLiteral("/state")).toUtf8());
+    const QString steamRoot = testutil::makeFixtureSteam(temp);
+    const QString sourceLibrary = temp.path() + QStringLiteral("/libraryA");
+    const QString destLibrary = temp.path() + QStringLiteral("/libraryB");
+    const QString sourceShader = sourceLibrary + QStringLiteral("/steamapps/shadercache/12345/cache.bin");
+    const QString destShader = destLibrary + QStringLiteral("/steamapps/shadercache/12345/cache.bin");
+    QVERIFY(testutil::writeFile(destShader, QByteArray("existing destination cache")));
+
+    const MountTable mounts = MountTable::fromMounts({testutil::makeMount(temp.path())});
+    QString error;
+    SteamScan scan = scanSteam({steamRoot, InstallKind::Native}, mounts, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    MoveOptions options;
+    options.allowNtfsNative = true;
+    const MovePlan plan = MovePlanner::plan(scan, 12345, destLibrary, options, mounts, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QVERIFY2(!plan.hasBlocker(), qPrintable(plan.blockers().isEmpty()
+                                                ? QStringLiteral("no blocker")
+                                                : plan.blockers().first().detail));
+    bool found = false;
+    for (const Issue &issue : plan.issues) {
+        if (issue.code == QStringLiteral("shadercache-destination-exists"))
+            found = true;
+    }
+    QVERIFY(found);
+    QVERIFY(QFileInfo::exists(destShader));
+    QVERIFY(QFileInfo::exists(sourceShader));
+    QVERIFY(!plan.findComponent(ComponentKind::ShaderCache));
+}
 void MoverTest::prefixMoveToRealDirectory()
 {
     QTemporaryDir temp;

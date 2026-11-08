@@ -506,9 +506,17 @@ MovePlan MovePlanner::plan(const SteamScan &scan, quint32 appId, const QString &
                                                      QStringLiteral("shadercache")),
                                             QString::number(appId));
         if (pathExistsNoFollow(shaderSource)) {
-            addTreeComponent(plan, mounts, ComponentKind::ShaderCache, shaderSource, shaderDest,
-                             false, dest->mount.isWindowsCompatible(),
-                             dest->mount.fsClass == FsClass::Fat32);
+            if (pathExistsNoFollow(shaderDest)) {
+                addIssue(plan, Severity::Warning, QStringLiteral("shadercache-destination-exists"),
+                         QStringLiteral("Shader cache already exists at the destination"),
+                         QStringLiteral("The existing destination cache will be kept; the source "
+                                        "cache is not copied and will be left in the source library. "
+                                        "Steam can regenerate shader caches safely."));
+            } else {
+                addTreeComponent(plan, mounts, ComponentKind::ShaderCache, shaderSource, shaderDest,
+                                 false, dest->mount.isWindowsCompatible(),
+                                 dest->mount.fsClass == FsClass::Fat32);
+            }
         }
     } else if (pathExistsNoFollow(joinPath(joinPath(source->steamappsPath(),
                                                    QStringLiteral("shadercache")),

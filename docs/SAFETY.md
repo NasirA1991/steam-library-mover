@@ -142,6 +142,9 @@ batch requirement (including the safety margin) before queueing.
 - The GUI never creates/registers a new Steam library or adds a new drive entry. It only updates the
   moved game's existing `apps` entry, with a VDF backup.
 - Free space is checked at plan time, not continuously during a copy.
+- If the destination already has a shader cache for the game, the existing cache is kept
+  and the source cache is not copied; the source cache is left in the old library and can
+  be removed manually. Steam regenerates shader caches safely.
 - xattrs/ACLs and sparse extents are not preserved; symlinks, modes and mtimes are.
 - Flatpak builds cannot detect host Steam/Wine processes without a host-spawn permission; do not
   ship a Flatpak build without validating that path.
