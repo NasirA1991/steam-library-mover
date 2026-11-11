@@ -19,17 +19,44 @@ Keep prefixes on a Linux filesystem and symlink the library's `compatdata` direc
 location. For example:
 
 ```bash
-mkdir -p ~/.local/share/Steam/steamapps/compatdata
-ln -s ~/.local/share/Steam/steamapps/compatdata \
-      /mnt/games/kingston/SteamLibrary/steamapps/compatdata
+shared="$HOME/.local/share/Steam/steamapps/compatdata"
+library="/mnt/games/kingston/SteamLibrary/steamapps/compatdata"
+
+if [ -L "$library" ]; then
+    if [ "$(readlink -f -- "$library")" = "$(readlink -f -- "$shared")" ]; then
+        echo "Already configured."
+    else
+        echo "Refusing: $library points somewhere else; leaving it unchanged." >&2
+    fi
+elif [ -e "$library" ]; then
+    echo "Refusing: $library already exists; leaving it unchanged." >&2
+    echo "If it is empty, inspect it and remove it with rmdir, then rerun." >&2
+    echo "If it contains prefixes, migrate them first; never delete a non-empty directory." >&2
+else
+    mkdir -p -- "$shared"
+    ln -s -- "$shared" "$library"
+fi
 ```
 
-If `/mnt/.../steamapps/compatdata` already exists and is **empty**, it can be removed and replaced.
-If it is a **non-empty real directory**, do not delete it: migrate the existing prefixes first. The
-NTFS Doctor refuses to destroy a non-empty prefix directory.
+The link target (`$shared` above) must be on ext4, btrfs, xfs or another Linux-compatible filesystem,
+never on NTFS, exFAT or FAT32. Putting the target on another Windows-compatible filesystem does not
+solve the prefix filename problem.
 
-Never make the symlink target a directory on NTFS/exFAT/FAT32. That does not solve the filename
-problem.
+If `compatdata` already exists, choose the matching case:
+
+- **Correct symlink:** the block reports “Already configured” and changes nothing.
+- **Different symlink:** stop and inspect it. Do not overwrite it.
+- **Empty real directory:** confirm it is empty with
+  `find "$library" -mindepth 1 -maxdepth 1 -print -quit` (no output means empty), then
+  `rmdir -- "$library"` and rerun the block. Do not use `rm -rf`.
+- **Non-empty real directory:** do not delete it. Existing Proton prefixes must be migrated first,
+  with Steam closed and a backup. Migration is not automatic: move the numbered prefix directories
+  into `$shared`, preserving permissions, and verify the games before replacing `compatdata`. If you
+  are unsure, leave the existing directory in place. The NTFS Doctor refuses to replace a non-empty
+  prefix directory.
+
+A bare `ln -s` is not safe when the destination already exists: it can create a second link inside
+the existing directory instead of replacing it.
 
 ## What Steam Library Mover does
 

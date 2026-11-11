@@ -1,7 +1,7 @@
 # Installation
 
 This page covers supported installation methods and building from source. For a quick install, see
-the [README quick start](../README.md#quick-start).
+the [README installation section](../README.md#installation).
 
 ## Supported methods
 
