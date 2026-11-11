@@ -631,7 +631,7 @@ bool CopyEngine::verifyTree(const QString &source, const QString &destination, b
         }
         return false;
     }
-    if (progress)
+    if (progress && fullHash)
         progress(verifiedBytes, QString());
     return true;
 }
