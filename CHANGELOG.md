@@ -4,7 +4,10 @@
 
 - The main window remembers its size and position across launches.
 - Sequential copy reads/writes use `posix_fadvise` to reduce readahead and keep writeback in
-  order.
+  order; copied source pages are dropped from the page cache.
+- Copy completion replaces files and symlinks with an atomic `rename(2)` instead of unlinking
+  the old destination first.
+- Full verification now reports hashed bytes instead of showing an indeterminate progress bar.
 
 ## 0.1.9 — 2026-11-11
 

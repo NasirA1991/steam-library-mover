@@ -18,6 +18,7 @@ class QComboBox;
 class QLabel;
 class QLineEdit;
 class QProgressDialog;
+class QSplitter;
 class QPushButton;
 class QTimer;
 class QThread;
@@ -129,6 +130,7 @@ private:
     QComboBox *m_statusFilter = nullptr;
     QComboBox *m_runtimeFilter = nullptr;
     QComboBox *m_sortMode = nullptr;
+    QSplitter *m_splitter = nullptr;
     QPushButton *m_reviewButton = nullptr;
     QAction *m_rescanAction = nullptr;
     QAction *m_quitSteamAction = nullptr;

@@ -325,7 +325,9 @@ void MoveProgressDialog::setGame(int index, int total, const QString &name, cons
 
 void MoveProgressDialog::setProgress(const slm::MoveProgress &progress)
 {
-    const bool busyPhase = progress.phase == slm::Phase::Verifying
+    const bool verifyingProgress =
+        progress.phase == slm::Phase::Verifying && progress.bytesTotal > 0;
+    const bool busyPhase = (progress.phase == slm::Phase::Verifying && !verifyingProgress)
         || progress.phase == slm::Phase::Syncing;
     updateStages(progress.phase, progress.bytesDone, progress.bytesTotal);
     if (busyPhase) {
@@ -364,9 +366,14 @@ void MoveProgressDialog::setProgress(const slm::MoveProgress &progress)
         m_percent->clear();
         m_progressText->setText(QStringLiteral("Preparing…"));
     }
-    m_detail->setText(progress.currentFile.isEmpty()
-                          ? QStringLiteral("Working…")
-                          : QStringLiteral("Current file: %1").arg(progress.currentFile));
+    if (verifyingProgress) {
+        m_detail->setText(QStringLiteral("Verifying copied data against the source…"));
+        m_status->setText(QStringLiteral("Full verification reads both copies. Cancel is safe."));
+    } else {
+        m_detail->setText(progress.currentFile.isEmpty()
+                              ? QStringLiteral("Working…")
+                              : QStringLiteral("Current file: %1").arg(progress.currentFile));
+    }
     m_lastBytes = progress.bytesDone;
     if (m_timer.isValid() && progress.bytesDone > 0) {
         const qint64 elapsedMs = qMax<qint64>(1, m_timer.elapsed());

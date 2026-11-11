@@ -283,10 +283,10 @@ void MainWindow::buildUi()
         "QToolButton#clearSelection:hover { background: palette(midlight); border-radius: 3px; }")
                              .arg(mutedText));
 
-    auto *splitter = new QSplitter(Qt::Horizontal, central);
-    outer->addWidget(splitter, 1);
+    m_splitter = new QSplitter(Qt::Horizontal, central);
+    outer->addWidget(m_splitter, 1);
 
-    auto *left = new QWidget(splitter);
+    auto *left = new QWidget(m_splitter);
     auto *leftLayout = new QVBoxLayout(left);
     leftLayout->setContentsMargins(0, 0, 8, 0);
     auto *librariesLabel = new QLabel(QStringLiteral("<b>Libraries</b>"), left);
@@ -303,9 +303,9 @@ void MainWindow::buildUi()
             &MainWindow::onLibrarySelected);
     connect(m_libraryList, &LibraryListWidget::gamesDroppedOnLibrary, this,
             &MainWindow::onGamesDroppedOnLibrary);
-    splitter->addWidget(left);
+    m_splitter->addWidget(left);
 
-    auto *right = new QWidget(splitter);
+    auto *right = new QWidget(m_splitter);
     auto *rightLayout = new QVBoxLayout(right);
     rightLayout->setContentsMargins(8, 0, 0, 0);
     m_search = new QLineEdit(right);
@@ -403,6 +403,21 @@ void MainWindow::buildUi()
     m_table->setColumnWidth(GameTableModel::DriveColumn, 150);
     m_table->setColumnWidth(GameTableModel::StatusColumn, 110);
     m_table->setIconSize(QSize(48, 64));
+
+    QSettings savedSettings;
+    const QByteArray headerState =
+        savedSettings.value(QStringLiteral("window/tableHeader")).toByteArray();
+    if (!headerState.isEmpty())
+        m_table->horizontalHeader()->restoreState(headerState);
+    const int savedSort = savedSettings.value(QStringLiteral("window/sortMode"),
+                                              static_cast<int>(GameTableModel::SortMode::Name)).toInt();
+    const bool savedAscending =
+        savedSettings.value(QStringLiteral("window/sortAscending"), true).toBool();
+    m_model->setSort(static_cast<GameTableModel::SortMode>(savedSort), savedAscending);
+    const int sortIndex = m_sortMode->findData(savedSort);
+    if (sortIndex >= 0)
+        m_sortMode->setCurrentIndex(sortIndex);
+    updateSortIndicator();
     connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged, this,
             &MainWindow::onSelectionChanged);
     connect(m_table, &QTableView::doubleClicked, this, &MainWindow::reviewMove);
@@ -510,10 +525,14 @@ void MainWindow::buildUi()
     transferLayout->addWidget(m_reviewButton);
     rightLayout->addWidget(transfer);
 
-    splitter->addWidget(right);
-    splitter->setStretchFactor(0, 0);
-    splitter->setStretchFactor(1, 1);
-    splitter->setSizes({310, 950});
+    m_splitter->addWidget(right);
+    m_splitter->setStretchFactor(0, 0);
+    m_splitter->setStretchFactor(1, 1);
+    m_splitter->setSizes({310, 950});
+    const QByteArray splitterState =
+        savedSettings.value(QStringLiteral("window/splitter")).toByteArray();
+    if (!splitterState.isEmpty())
+        m_splitter->restoreState(splitterState);
 
     m_artwork = new ArtworkProvider(this);
     connect(m_artwork, &ArtworkProvider::artworkReady, this, &MainWindow::onArtworkReady);
@@ -3304,5 +3323,9 @@ void MainWindow::closeEvent(QCloseEvent *event)
     }
     QSettings settings;
     settings.setValue(QStringLiteral("window/geometry"), saveGeometry());
+    settings.setValue(QStringLiteral("window/splitter"), m_splitter->saveState());
+    settings.setValue(QStringLiteral("window/tableHeader"), m_table->horizontalHeader()->saveState());
+    settings.setValue(QStringLiteral("window/sortMode"), static_cast<int>(m_model->sortMode()));
+    settings.setValue(QStringLiteral("window/sortAscending"), m_model->sortAscending());
     event->accept();
 }
