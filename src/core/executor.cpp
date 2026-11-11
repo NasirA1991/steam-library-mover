@@ -12,6 +12,7 @@
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -308,6 +309,69 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
         }
     }
 
+    QStringList monitorPrefixes;
+    QStringList monitorGameDirs;
+    for (const Component &component : plan.components) {
+        if (component.skip)
+            continue;
+        if (component.kind == ComponentKind::Prefix) {
+            if (!component.source.isEmpty())
+                monitorPrefixes.append(component.source);
+            if (!component.destination.isEmpty())
+                monitorPrefixes.append(component.destination);
+        } else if (component.kind == ComponentKind::Game) {
+            if (!component.source.isEmpty())
+                monitorGameDirs.append(component.source);
+            if (!component.destination.isEmpty())
+                monitorGameDirs.append(component.destination);
+        }
+    }
+    monitorPrefixes.removeDuplicates();
+    monitorGameDirs.removeDuplicates();
+
+    // Steam or a game may start after the initial preflight. Poll while copying
+    // and verifying; a mid-copy process must stop the operation before commit.
+    QElapsedTimer processClock;
+    processClock.start();
+    QString monitorError;
+    bool monitorTriggered = false;
+    const auto checkProcesses = [&]() -> bool {
+        if (monitorTriggered)
+            return false;
+        if (processClock.elapsed() < 30000)
+            return true;
+        processClock.restart();
+        const ProcessUsage usage = inspectProcesses(monitorPrefixes, monitorGameDirs);
+        if (usage.steamRunning) {
+            monitorError = QStringLiteral("Steam started while the move was running. "
+                                          "Stop Steam and resume the operation.");
+        } else if (usage.prefixInUse) {
+            monitorError = QStringLiteral("A Proton/Wine process started using the prefix. "
+                                          "Stop it and resume the operation.");
+        } else if (usage.gameInUse) {
+            monitorError = QStringLiteral("A game process started using the game directory. "
+                                          "Stop it and resume the operation.");
+        } else {
+            return true;
+        }
+        monitorTriggered = true;
+        logger.write(QStringLiteral("MID-MOVE BLOCKER: %1").arg(monitorError));
+        return false;
+    };
+    const auto abortRequested = [&]() -> bool {
+        if (monitorTriggered)
+            return true;
+        if (cancelled && cancelled())
+            return true;
+        checkProcesses();
+        return monitorTriggered;
+    };
+    const auto abortResult = [&]() -> MoveResult {
+        if (monitorTriggered)
+            return fail(monitorError);
+        return cancelMove();
+    };
+
     quint64 offset = 0;
     for (const Component &component : plan.components) {
         if (component.kind == ComponentKind::Manifest)
@@ -316,8 +380,8 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
             offset += component.bytes;
             continue;
         }
-        if (cancelled && cancelled())
-            return cancelMove();
+        if (abortRequested())
+            return abortResult();
 
         const Phase phase = component.kind == ComponentKind::Game ? Phase::CopyingGame
                                                                    : Phase::CopyingAux;
@@ -350,7 +414,7 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
                 return true;
             }
             return CopyEngine::verifyTree(component.source, component.destination,
-                                          plan.options.fullVerify, verifyError, cancelled);
+                                          plan.options.fullVerify, verifyError, abortRequested);
         };
         auto copyComponent = [&](QString *copyError) -> bool {
             if (component.kind == ComponentKind::WorkshopManifest) {
@@ -367,7 +431,7 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
                                  QStringLiteral("Copying %1").arg(componentKindName(component.kind)),
                                  currentFile, offset + bytesInTree, plan.totalBytes);
                 },
-                cancelled, &copied, copyError, paused);
+                abortRequested, &copied, copyError, paused);
         };
 
         if (pathExistsNoFollow(component.destination)) {
@@ -386,8 +450,8 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
                        component.destination, offset);
                 continue;
             }
-            if (cancelled && cancelled())
-                return cancelMove();
+            if (abortRequested())
+                return abortResult();
             logger.write(QStringLiteral("Resume: existing %1 failed verification (%2); recopying")
                              .arg(componentKindName(component.kind), verifyError));
             if (!fsutil::removeTree(component.destination, &stateError))
@@ -395,8 +459,8 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
         }
 
         if (!copyComponent(&stateError)) {
-            if (cancelled && cancelled())
-                return cancelMove();
+            if (abortRequested())
+                return abortResult();
             return fail(QStringLiteral("Copy failed: %1").arg(stateError));
         }
 
@@ -408,8 +472,8 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
         setPhase(Phase::Verifying, verifyMessage);
         notify(Phase::Verifying, verifyMessage, QString(), offset);
         if (!verifyComponent(&stateError)) {
-            if (cancelled && cancelled())
-                return cancelMove();
+            if (abortRequested())
+                return abortResult();
             // A partial write or transient I/O error can leave a complete-looking
             // copy. Remove it and retry once; resume relies on this to repair a
             // destination that failed verification in an earlier attempt.
@@ -421,12 +485,15 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
             notify(phase, QStringLiteral("Repairing %1").arg(componentKindName(component.kind)),
                    QString(), offset);
             if (!copyComponent(&stateError)) {
-                if (cancelled && cancelled())
-                    return cancelMove();
+                if (abortRequested())
+                    return abortResult();
                 return fail(QStringLiteral("Copy failed during repair: %1").arg(stateError));
             }
-            if (!verifyComponent(&stateError))
+            if (!verifyComponent(&stateError)) {
+                if (abortRequested())
+                    return abortResult();
                 return fail(QStringLiteral("Verification failed after repair: %1").arg(stateError));
+            }
         }
         if (cancelled && cancelled())
             return cancelMove();
@@ -458,8 +525,8 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
     }
     notify(Phase::Syncing, QStringLiteral("Destination data is durable"), QString(), offset);
 
-    if (cancelled && cancelled())
-        return cancelMove();
+    if (abortRequested())
+        return abortResult();
 
     {
         MountTable live = MountTable::load(&stateError);
@@ -534,7 +601,14 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
                                            : QStringLiteral("Removing source payload"));
     QStringList cleanupErrors;
     QStringList backupPaths;
+    bool cleanupAllowed = checkProcesses();
+    if (!cleanupAllowed) {
+        cleanupErrors.append(monitorError);
+        logger.write(QStringLiteral("Cleanup skipped: %1").arg(monitorError));
+    }
     for (const Component &component : plan.components) {
+        if (!cleanupAllowed)
+            break;
         if (component.kind == ComponentKind::Manifest || component.skip)
             continue;
         QString cleanupError;
@@ -543,6 +617,7 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
             cleanupErrors.append(QStringLiteral("%1: %2").arg(component.source, cleanupError));
             logger.write(QStringLiteral("Cleanup warning: %1").arg(cleanupError));
         }
+        cleanupAllowed = checkProcesses();
     }
 
     journal.insert(QStringLiteral("backupPaths"), QJsonArray::fromStringList(backupPaths));

@@ -15,7 +15,10 @@ and ordering described here; do not weaken them casually.
 - The tool is not running as root.
 
 The planner records these as blockers and the executor rechecks the important ones immediately
-before modifying anything.
+before modifying anything. During copy and verification it also polls for Steam, game and
+Proton/Wine processes every 30 seconds; if one starts, the operation stops before commit and can
+be resumed after it is closed. The GUI and CLI also hold a machine-wide advisory lock so two
+instances, including instances under different users, cannot modify libraries at the same time.
 
 ## Move transaction
 
@@ -145,7 +148,8 @@ batch requirement (including the safety margin) before queueing.
   warning; verify the actual filesystem when using FUSE mounts.
 - The GUI never creates/registers a new Steam library or adds a new drive entry. It only updates the
   moved game's existing `apps` entry, with a VDF backup.
-- Free space is checked at plan time, not continuously during a copy.
+- Free space is checked at plan time, at execute start and immediately before commit, not
+  continuously during a copy.
 - If the destination already has a shader cache for the game, the existing cache is kept
   and the source cache is not copied; the source cache is left in the old library and can
   be removed manually. Steam regenerates shader caches safely.

@@ -10,6 +10,9 @@
   paths against the destination library.
 - Recursive cleanup is now descriptor-relative, does not follow symlinks, and refuses to cross a
   filesystem boundary, closing a path-swap race during source cleanup and rollback.
+- A machine-wide advisory lock now prevents the GUI and CLI (including different users) from
+  starting overlapping operations. Steam, game and Proton/Wine processes are also polled during
+  copy and verification; if one starts, the move stops before commit and can be resumed.
 
 ## 0.1.8 — 2026-11-11
 

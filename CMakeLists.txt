@@ -24,6 +24,7 @@ add_library(slm_core STATIC
     src/core/vdf.cpp
     src/core/appmanifest.cpp
     src/core/fileops.cpp
+    src/core/instance_lock.cpp
     src/core/mountinfo.cpp
     src/core/scanner.cpp
     src/core/scancache.cpp

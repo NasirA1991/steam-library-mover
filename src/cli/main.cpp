@@ -2,6 +2,7 @@
 #include "core/doctor.h"
 #include "core/health.h"
 #include "core/executor.h"
+#include "core/instance_lock.h"
 #include "core/fileops.h"
 #include "core/journal.h"
 #include "core/mountinfo.h"
@@ -18,7 +19,6 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QLockFile>
 #include <QStandardPaths>
 #include <QTextStream>
 #include <QThread>
@@ -488,13 +488,10 @@ int main(int argc, char **argv)
     app.setApplicationVersion(QString::fromLatin1(SLM_VERSION));
     app.setOrganizationName(QStringLiteral("SteamLibraryMover"));
 
-    QString runtimeDir = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
-    if (runtimeDir.isEmpty() || !QFileInfo(runtimeDir).isWritable())
-        runtimeDir = QDir::tempPath();
-    QLockFile instanceLock(runtimeDir + QStringLiteral("/steam-library-mover.lock"));
-    instanceLock.setStaleLockTime(30000);
-    if (!instanceLock.tryLock(200)) {
-        err << "Steam Library Mover is already running (GUI or CLI).\n";
+    slm::InstanceLock instanceLock;
+    QString lockError;
+    if (!instanceLock.acquire(&lockError)) {
+        err << lockError << "\n";
         return 1;
     }
 

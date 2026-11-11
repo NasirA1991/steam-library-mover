@@ -2,13 +2,14 @@
 #include "mainwindow.h"
 #include "theme.h"
 
+#include "core/instance_lock.h"
+
 #include "core/types.h"
 
 #include <QApplication>
 #include <QIcon>
 #include <QDir>
 #include <QFileInfo>
-#include <QLockFile>
 #include <QMessageBox>
 #include <QStandardPaths>
 
@@ -28,14 +29,10 @@ int main(int argc, char **argv)
     qRegisterMetaType<slm::MoveProgress>("slm::MoveProgress");
     qRegisterMetaType<slm::MoveResult>("slm::MoveResult");
 
-    QString runtimeDir = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
-    if (runtimeDir.isEmpty() || !QFileInfo(runtimeDir).isWritable())
-        runtimeDir = QDir::tempPath();
-    QLockFile lock(runtimeDir + QStringLiteral("/steam-library-mover.lock"));
-    lock.setStaleLockTime(30000);
-    if (!lock.tryLock(200)) {
-        QMessageBox::warning(nullptr, QStringLiteral("Steam Library Mover"),
-                             QStringLiteral("Steam Library Mover is already running."));
+    slm::InstanceLock lock;
+    QString lockError;
+    if (!lock.acquire(&lockError)) {
+        QMessageBox::warning(nullptr, QStringLiteral("Steam Library Mover"), lockError);
         return 1;
     }
 
