@@ -182,7 +182,7 @@ MainWindow::~MainWindow()
 void MainWindow::buildUi()
 {
     setWindowTitle(QStringLiteral("Steam Library Mover"));
-    setMinimumSize(1100, 720);
+    setMinimumSize(900, 560);
     QSettings settings;
     if (!restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray()))
         resize(1280, 820);
@@ -202,6 +202,26 @@ void MainWindow::buildUi()
     toolsMenu->addAction(QStringLiteral("Recovery…"), this, &MainWindow::showRecovery);
     toolsMenu->addSeparator();
     toolsMenu->addAction(QStringLiteral("Settings…"), this, &MainWindow::showSettings);
+
+    auto *viewMenu = menuBar()->addMenu(QStringLiteral("&View"));
+    m_sidebarAction = viewMenu->addAction(QStringLiteral("Library sidebar"));
+    m_sidebarAction->setCheckable(true);
+    m_sidebarAction->setChecked(true);
+    m_sidebarAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+B")));
+    m_sidebarAction->setToolTip(
+        QStringLiteral("Show or hide the library sidebar (Ctrl+B)"));
+    connect(m_sidebarAction, &QAction::toggled, this, [this](bool visible) {
+        if (!m_libraryPane)
+            return;
+        m_libraryPane->setVisible(visible);
+        // A splitter persists a zero width for a hidden pane. If the pane was
+        // hidden when the window closed, give it a useful width again rather
+        // than leaving an invisible handle at the edge.
+        if (visible && m_splitter && m_splitter->sizes().value(0) < 50) {
+            const int width = qMax(310, m_splitter->width());
+            m_splitter->setSizes({310, qMax(1, width - 310)});
+        }
+    });
 
     auto *helpMenu = menuBar()->addMenu(QStringLiteral("&Help"));
     helpMenu->addAction(QStringLiteral("&About"), this, &MainWindow::showAbout);
@@ -287,6 +307,7 @@ void MainWindow::buildUi()
     outer->addWidget(m_splitter, 1);
 
     auto *left = new QWidget(m_splitter);
+    m_libraryPane = left;
     auto *leftLayout = new QVBoxLayout(left);
     leftLayout->setContentsMargins(0, 0, 8, 0);
     auto *librariesLabel = new QLabel(QStringLiteral("<b>Libraries</b>"), left);
@@ -533,6 +554,10 @@ void MainWindow::buildUi()
         savedSettings.value(QStringLiteral("window/splitter")).toByteArray();
     if (!splitterState.isEmpty())
         m_splitter->restoreState(splitterState);
+    const bool sidebarVisible =
+        savedSettings.value(QStringLiteral("window/sidebarVisible"), true).toBool();
+    m_sidebarAction->setChecked(sidebarVisible);
+    m_libraryPane->setVisible(sidebarVisible);
 
     m_artwork = new ArtworkProvider(this);
     connect(m_artwork, &ArtworkProvider::artworkReady, this, &MainWindow::onArtworkReady);
@@ -3327,5 +3352,6 @@ void MainWindow::closeEvent(QCloseEvent *event)
     settings.setValue(QStringLiteral("window/tableHeader"), m_table->horizontalHeader()->saveState());
     settings.setValue(QStringLiteral("window/sortMode"), static_cast<int>(m_model->sortMode()));
     settings.setValue(QStringLiteral("window/sortAscending"), m_model->sortAscending());
+    settings.setValue(QStringLiteral("window/sidebarVisible"), m_libraryPane->isVisible());
     event->accept();
 }

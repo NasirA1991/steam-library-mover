@@ -8,6 +8,8 @@
 - Copy completion replaces files and symlinks with an atomic `rename(2)` instead of unlinking
   the old destination first.
 - Full verification now reports hashed bytes instead of showing an indeterminate progress bar.
+- The library sidebar can be hidden from View → Library sidebar (Ctrl+B), and the minimum window
+  size is now 900×560 so the window fits smaller displays.
 
 ## 0.1.9 — 2026-11-11
 

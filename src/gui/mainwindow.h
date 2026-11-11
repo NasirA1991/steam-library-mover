@@ -136,6 +136,8 @@ private:
     QAction *m_quitSteamAction = nullptr;
     QAction *m_showToolsAction = nullptr;
     QToolBar *m_toolbar = nullptr;
+    QWidget *m_libraryPane = nullptr;
+    QAction *m_sidebarAction = nullptr;
     QTimer *m_statusTimer = nullptr;
     QThread *m_processThread = nullptr;
     QThread *m_shutdownThread = nullptr;
