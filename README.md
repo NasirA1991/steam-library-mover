@@ -99,7 +99,7 @@ chmod +x Steam_Library_Mover-x86_64.AppImage
   <img src="docs/screenshots/transfer-progress.png" alt="Transfer progress" width="46%">
 </p>
 
-<p align="center"><sub>Current build v0.1.7. Screenshots use a demo library. Review every move before it starts; unsafe destinations are explained instead of being attempted.</sub></p>
+<p align="center"><sub>Current build v0.1.8. Screenshots use a demo library. Review every move before it starts; unsafe destinations are explained instead of being attempted.</sub></p>
 
 ## How to move a game
 

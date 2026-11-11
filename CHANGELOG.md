@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.8 — 2026-11-11
+
+- The NTFS acknowledgement can no longer be bypassed by reopening the review
+  dialog; the core planner also detects unacknowledged Windows filesystems.
+- Disk mounts are reloaded and revalidated at execute time and immediately
+  before the manifest commit.
+- Recovery now offers View log, Open folder and Forget actions instead of dead
+  ends.
+- Pause/resume speed and ETA no longer include time spent paused.
+- VDF parsing rejects unterminated quotes; planner preflights unsupported file
+  types and warns about volatile destinations.
+- Runtime detection no longer treats arbitrary `proton*` names as system
+  components, and VDF app sizes use the scanned game component.
+- Artwork downloads are size-capped and content-validated; Steam launch uses
+  known installation paths before `PATH`.
+
 ## 0.1.7 — 2026-11-08
 
 - An existing destination shader cache no longer blocks the move. The existing

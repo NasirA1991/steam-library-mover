@@ -1,9 +1,11 @@
-# Steam Library Mover v0.1.7 — public alpha
+# Steam Library Mover v0.1.8 — public alpha
 
 **This is an alpha release of a tool that moves real game files. Read the safety notes and keep an
 independent backup of irreplaceable data.**
 
-This release fixes the shader-cache collision that blocked moving a game back to a library that still had its old cache. The existing destination cache is now kept and the source cache is left behind with a warning. It also clarifies that full verification is optional and explains why Start is disabled.
+This release closes the first batch of review findings. The most important fix prevents the NTFS
+acknowledgement from being bypassed, and the executor now reloads disk state immediately before
+the manifest commit.
 
 ## Highlights
 
@@ -16,6 +18,20 @@ This release fixes the shader-cache collision that blocked moving a game back to
 - Batch queue, drag and drop, pause/resume, keep-source backups, reflink copy fast path.
 - Library Health with non-destructive quarantine, NTFS Doctor and Recovery.
 - Light/dark themes, compact game list, explicit checkboxes and a transfer summary strip.
+
+## What changed in 0.1.8
+
+- NTFS acknowledgement is enforced by the core planner. Reopening the review dialog no longer
+  hides an unacknowledged Windows filesystem.
+- Mounts are reloaded and revalidated at execute time and immediately before the manifest commit.
+- Recovery offers **View log**, **Open folder** and **Forget** actions.
+- Pause/resume speed and ETA exclude time spent paused.
+- VDF parsing rejects unterminated quotes; unsupported file types are preflighted; volatile
+  destination filesystems produce a warning.
+- Runtime detection only treats the exact `proton` name as a system component, and VDF app sizes
+  use the scanned game component.
+- Artwork downloads are capped and content-validated; Steam launch uses known installation paths
+  before `PATH`.
 
 ## Installation
 

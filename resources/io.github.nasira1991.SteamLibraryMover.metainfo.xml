@@ -59,6 +59,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.8" date="2026-11-11">
+      <description>
+        <p>Fixes the NTFS acknowledgement bypass, revalidates disk state before and during the commit, adds recovery actions, and corrects verification, parser and pause/ETA edge cases.</p>
+      </description>
+    </release>
     <release version="0.1.7" date="2026-11-08">
       <description>
         <p>Keeps an existing destination shader cache instead of blocking the move, clarifies that full verification is optional, explains why Start is disabled, and isolates GUI test settings from the user configuration.</p>
