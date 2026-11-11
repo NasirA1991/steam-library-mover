@@ -182,8 +182,10 @@ MainWindow::~MainWindow()
 void MainWindow::buildUi()
 {
     setWindowTitle(QStringLiteral("Steam Library Mover"));
-    resize(1280, 820);
-    setMinimumSize(1100, 720);
+    setMinimumSize(900, 560);
+    QSettings settings;
+    if (!restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray()))
+        resize(1280, 820);
 
     auto *fileMenu = menuBar()->addMenu(QStringLiteral("&File"));
     m_rescanAction = fileMenu->addAction(QIcon::fromTheme(QStringLiteral("view-refresh")),
@@ -200,6 +202,26 @@ void MainWindow::buildUi()
     toolsMenu->addAction(QStringLiteral("Recovery…"), this, &MainWindow::showRecovery);
     toolsMenu->addSeparator();
     toolsMenu->addAction(QStringLiteral("Settings…"), this, &MainWindow::showSettings);
+
+    auto *viewMenu = menuBar()->addMenu(QStringLiteral("&View"));
+    m_sidebarAction = viewMenu->addAction(QStringLiteral("Library sidebar"));
+    m_sidebarAction->setCheckable(true);
+    m_sidebarAction->setChecked(true);
+    m_sidebarAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+B")));
+    m_sidebarAction->setToolTip(
+        QStringLiteral("Show or hide the library sidebar (Ctrl+B)"));
+    connect(m_sidebarAction, &QAction::toggled, this, [this](bool visible) {
+        if (!m_libraryPane)
+            return;
+        m_libraryPane->setVisible(visible);
+        // A splitter persists a zero width for a hidden pane. If the pane was
+        // hidden when the window closed, give it a useful width again rather
+        // than leaving an invisible handle at the edge.
+        if (visible && m_splitter && m_splitter->sizes().value(0) < 50) {
+            const int width = qMax(310, m_splitter->width());
+            m_splitter->setSizes({310, qMax(1, width - 310)});
+        }
+    });
 
     auto *helpMenu = menuBar()->addMenu(QStringLiteral("&Help"));
     helpMenu->addAction(QStringLiteral("&About"), this, &MainWindow::showAbout);
@@ -281,10 +303,11 @@ void MainWindow::buildUi()
         "QToolButton#clearSelection:hover { background: palette(midlight); border-radius: 3px; }")
                              .arg(mutedText));
 
-    auto *splitter = new QSplitter(Qt::Horizontal, central);
-    outer->addWidget(splitter, 1);
+    m_splitter = new QSplitter(Qt::Horizontal, central);
+    outer->addWidget(m_splitter, 1);
 
-    auto *left = new QWidget(splitter);
+    auto *left = new QWidget(m_splitter);
+    m_libraryPane = left;
     auto *leftLayout = new QVBoxLayout(left);
     leftLayout->setContentsMargins(0, 0, 8, 0);
     auto *librariesLabel = new QLabel(QStringLiteral("<b>Libraries</b>"), left);
@@ -301,9 +324,9 @@ void MainWindow::buildUi()
             &MainWindow::onLibrarySelected);
     connect(m_libraryList, &LibraryListWidget::gamesDroppedOnLibrary, this,
             &MainWindow::onGamesDroppedOnLibrary);
-    splitter->addWidget(left);
+    m_splitter->addWidget(left);
 
-    auto *right = new QWidget(splitter);
+    auto *right = new QWidget(m_splitter);
     auto *rightLayout = new QVBoxLayout(right);
     rightLayout->setContentsMargins(8, 0, 0, 0);
     m_search = new QLineEdit(right);
@@ -401,6 +424,21 @@ void MainWindow::buildUi()
     m_table->setColumnWidth(GameTableModel::DriveColumn, 150);
     m_table->setColumnWidth(GameTableModel::StatusColumn, 110);
     m_table->setIconSize(QSize(48, 64));
+
+    QSettings savedSettings;
+    const QByteArray headerState =
+        savedSettings.value(QStringLiteral("window/tableHeader")).toByteArray();
+    if (!headerState.isEmpty())
+        m_table->horizontalHeader()->restoreState(headerState);
+    const int savedSort = savedSettings.value(QStringLiteral("window/sortMode"),
+                                              static_cast<int>(GameTableModel::SortMode::Name)).toInt();
+    const bool savedAscending =
+        savedSettings.value(QStringLiteral("window/sortAscending"), true).toBool();
+    m_model->setSort(static_cast<GameTableModel::SortMode>(savedSort), savedAscending);
+    const int sortIndex = m_sortMode->findData(savedSort);
+    if (sortIndex >= 0)
+        m_sortMode->setCurrentIndex(sortIndex);
+    updateSortIndicator();
     connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged, this,
             &MainWindow::onSelectionChanged);
     connect(m_table, &QTableView::doubleClicked, this, &MainWindow::reviewMove);
@@ -508,10 +546,18 @@ void MainWindow::buildUi()
     transferLayout->addWidget(m_reviewButton);
     rightLayout->addWidget(transfer);
 
-    splitter->addWidget(right);
-    splitter->setStretchFactor(0, 0);
-    splitter->setStretchFactor(1, 1);
-    splitter->setSizes({310, 950});
+    m_splitter->addWidget(right);
+    m_splitter->setStretchFactor(0, 0);
+    m_splitter->setStretchFactor(1, 1);
+    m_splitter->setSizes({310, 950});
+    const QByteArray splitterState =
+        savedSettings.value(QStringLiteral("window/splitter")).toByteArray();
+    if (!splitterState.isEmpty())
+        m_splitter->restoreState(splitterState);
+    const bool sidebarVisible =
+        savedSettings.value(QStringLiteral("window/sidebarVisible"), true).toBool();
+    m_sidebarAction->setChecked(sidebarVisible);
+    m_libraryPane->setVisible(sidebarVisible);
 
     m_artwork = new ArtworkProvider(this);
     connect(m_artwork, &ArtworkProvider::artworkReady, this, &MainWindow::onArtworkReady);
@@ -3300,5 +3346,12 @@ void MainWindow::closeEvent(QCloseEvent *event)
         if (thread)
             thread->wait();
     }
+    QSettings settings;
+    settings.setValue(QStringLiteral("window/geometry"), saveGeometry());
+    settings.setValue(QStringLiteral("window/splitter"), m_splitter->saveState());
+    settings.setValue(QStringLiteral("window/tableHeader"), m_table->horizontalHeader()->saveState());
+    settings.setValue(QStringLiteral("window/sortMode"), static_cast<int>(m_model->sortMode()));
+    settings.setValue(QStringLiteral("window/sortAscending"), m_model->sortAscending());
+    settings.setValue(QStringLiteral("window/sidebarVisible"), m_libraryPane->isVisible());
     event->accept();
 }

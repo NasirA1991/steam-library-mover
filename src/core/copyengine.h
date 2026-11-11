@@ -20,7 +20,8 @@ public:
                          QString *error = nullptr, const PauseFn &paused = {});
 
     static bool verifyTree(const QString &source, const QString &destination, bool fullHash,
-                           QString *error = nullptr, const CancelFn &cancelled = {});
+                           QString *error = nullptr, const CancelFn &cancelled = {},
+                           const ProgressFn &progress = {});
 };
 
 } // namespace slm

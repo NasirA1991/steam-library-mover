@@ -76,24 +76,6 @@ bool ensureDestinationDirectory(const QString &path, QString *error)
     return true;
 }
 
-bool unlinkIfExists(const QString &path, QString *error)
-{
-    struct stat st {};
-    if (!lstatPath(path, &st))
-        return true;
-    if (isDirectory(st)) {
-        if (error)
-            *error = QStringLiteral("Refusing to replace a directory with a file: %1").arg(path);
-        return false;
-    }
-    if (::unlink(QFile::encodeName(path).constData()) != 0) {
-        if (error)
-            *error = QStringLiteral("Cannot replace %1: %2").arg(path, errnoString());
-        return false;
-    }
-    return true;
-}
-
 bool applyTimesAndMode(const QString &path, const FileEntry &entry, bool symlink)
 {
     const QByteArray encoded = QFile::encodeName(path);
@@ -128,6 +110,9 @@ bool copyRegularFile(const QString &source, const QString &destination, const Fi
         return false;
     }
 
+    // Game payloads are read and written front-to-back once. Tell the kernel so
+    // it can drop readahead and writeback the destination in order.
+    (void)::posix_fadvise(input, 0, 0, POSIX_FADV_SEQUENTIAL);
     const QString temporary = QFileInfo(destination).absolutePath() + QStringLiteral("/.slm-part-")
         + QString::number(::getpid()) + QLatin1Char('-')
         + QString::number(static_cast<qulonglong>(QDateTime::currentMSecsSinceEpoch()));
@@ -139,6 +124,8 @@ bool copyRegularFile(const QString &source, const QString &destination, const Fi
             *error = QStringLiteral("Cannot create temporary file %1: %2").arg(temporary, errnoString());
         return false;
     }
+
+    (void)::posix_fadvise(output, 0, 0, POSIX_FADV_SEQUENTIAL);
 
     bool ok = true;
     bool cloned = false;
@@ -224,6 +211,12 @@ bool copyRegularFile(const QString &source, const QString &destination, const Fi
         }
     }
 
+    // Game payloads are not read again until verification (and full
+    // verification re-reads them deliberately), so release the source pages
+    // instead of evicting the rest of the user's working set.
+    if (ok && !cloned)
+        (void)::posix_fadvise(input, 0, 0, POSIX_FADV_DONTNEED);
+
     // Per-file fsync would make large game moves extremely slow. The executor
     // calls syncfs() on every destination filesystem before committing.
     if (ok) {
@@ -248,10 +241,17 @@ bool copyRegularFile(const QString &source, const QString &destination, const Fi
     ::close(input);
 
     if (ok) {
-        if (!unlinkIfExists(destination, error)) {
+        struct stat destinationStat {};
+        if (lstatPath(destination, &destinationStat) && isDirectory(destinationStat)) {
+            if (error)
+                *error = QStringLiteral("Refusing to replace a directory with a file: %1")
+                             .arg(destination);
             ::unlink(temporaryName.constData());
             return false;
         }
+        // rename(2) atomically replaces a file or symlink at the destination.
+        // Removing the old path first would open a window where the game file is
+        // missing if the process is interrupted between unlink and rename.
         if (::rename(temporaryName.constData(), QFile::encodeName(destination).constData()) != 0) {
             if (error)
                 *error = QStringLiteral("Cannot finalize %1: %2").arg(destination, errnoString());
@@ -293,7 +293,8 @@ bool destinationMatches(const FileEntry &entry, const QString &destination)
 }
 
 bool hashFile(const QString &path, QByteArray *result, QString *error,
-              const CopyEngine::CancelFn &cancelled)
+              const CopyEngine::CancelFn &cancelled,
+              const std::function<void(qint64)> &progress = {})
 {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
@@ -315,6 +316,8 @@ bool hashFile(const QString &path, QByteArray *result, QString *error,
             return false;
         }
         hash.addData(chunk);
+        if (progress)
+            progress(static_cast<qint64>(chunk.size()));
     }
     if (cancelled && cancelled()) {
         if (error)
@@ -410,21 +413,25 @@ bool CopyEngine::copyTree(const QString &source, const QString &destination,
                 ok = false;
                 break;
             }
-            if (exists && ::unlink(QFile::encodeName(destPath).constData()) != 0) {
-                if (error)
-                    *error = QStringLiteral("Cannot remove old symlink %1: %2").arg(destPath, errnoString());
-                ok = false;
-                break;
-            }
-            if (::symlink(entry.symlinkTarget.toUtf8().constData(),
-                          QFile::encodeName(destPath).constData())
-                != 0) {
+            const QString temporary = destPath + QStringLiteral(".slm-link-")
+                + QString::number(::getpid()) + QLatin1Char('-')
+                + QString::number(static_cast<qulonglong>(QDateTime::currentMSecsSinceEpoch()));
+            const QByteArray temporaryName = QFile::encodeName(temporary);
+            if (::symlink(entry.symlinkTarget.toUtf8().constData(), temporaryName.constData()) != 0) {
                 if (error)
                     *error = QStringLiteral("Cannot create symlink %1: %2").arg(destPath, errnoString());
                 ok = false;
                 break;
             }
-            applyTimesAndMode(destPath, entry, true);
+            applyTimesAndMode(temporary, entry, true);
+            if (::rename(temporaryName.constData(), QFile::encodeName(destPath).constData()) != 0) {
+                if (error)
+                    *error = QStringLiteral("Cannot finalize symlink %1: %2")
+                                 .arg(destPath, errnoString());
+                ::unlink(temporaryName.constData());
+                ok = false;
+                break;
+            }
             break;
         }
         case FileEntryType::File: {
@@ -445,16 +452,28 @@ bool CopyEngine::copyTree(const QString &source, const QString &destination,
             const QString inodeKey = QStringLiteral("%1:%2").arg(entry.device).arg(entry.inode);
             if (entry.linkCount > 1 && hardLinks.contains(inodeKey)) {
                 const QString existing = hardLinks.value(inodeKey);
-                if (!unlinkIfExists(destPath, error)) {
+                if (lstatPath(destPath, &st) && S_ISDIR(st.st_mode)) {
+                    if (error)
+                        *error = QStringLiteral("Refusing to replace directory %1").arg(destPath);
                     ok = false;
                     break;
                 }
-                if (::link(QFile::encodeName(existing).constData(),
-                           QFile::encodeName(destPath).constData())
-                    != 0) {
+                const QString temporary = destPath + QStringLiteral(".slm-link-")
+                    + QString::number(::getpid()) + QLatin1Char('-')
+                    + QString::number(static_cast<qulonglong>(QDateTime::currentMSecsSinceEpoch()));
+                const QByteArray temporaryName = QFile::encodeName(temporary);
+                if (::link(QFile::encodeName(existing).constData(), temporaryName.constData()) != 0) {
                     if (error)
                         *error = QStringLiteral("Cannot create hard link %1: %2")
                                      .arg(destPath, errnoString());
+                    ok = false;
+                    break;
+                }
+                if (::rename(temporaryName.constData(), QFile::encodeName(destPath).constData()) != 0) {
+                    if (error)
+                        *error = QStringLiteral("Cannot finalize hard link %1: %2")
+                                     .arg(destPath, errnoString());
+                    ::unlink(temporaryName.constData());
                     ok = false;
                     break;
                 }
@@ -496,7 +515,7 @@ bool CopyEngine::copyTree(const QString &source, const QString &destination,
 }
 
 bool CopyEngine::verifyTree(const QString &source, const QString &destination, bool fullHash,
-                            QString *error, const CancelFn &cancelled)
+                            QString *error, const CancelFn &cancelled, const ProgressFn &progress)
 {
     if (cancelled && cancelled()) {
         if (error)
@@ -525,6 +544,10 @@ bool CopyEngine::verifyTree(const QString &source, const QString &destination, b
             *error = destTree.error;
         return false;
     }
+
+    quint64 verifiedBytes = 0;
+    QElapsedTimer verifyTimer;
+    verifyTimer.start();
 
     QHash<QString, const FileEntry *> destEntries;
     int extra = 0;
@@ -565,8 +588,15 @@ bool CopyEngine::verifyTree(const QString &source, const QString &destination, b
                 QByteArray destHash;
                 const QString sp = source + QLatin1Char('/') + sourceEntry.relativePath;
                 const QString dp = destination + QLatin1Char('/') + destEntry.relativePath;
-                if (!hashFile(sp, &sourceHash, error, cancelled)
-                    || !hashFile(dp, &destHash, error, cancelled))
+                auto hashProgress = [&](qint64 bytes) {
+                    verifiedBytes += static_cast<quint64>(bytes);
+                    if (progress && verifyTimer.elapsed() >= kProgressIntervalMs) {
+                        progress(verifiedBytes, sourceEntry.relativePath);
+                        verifyTimer.restart();
+                    }
+                };
+                if (!hashFile(sp, &sourceHash, error, cancelled, hashProgress)
+                    || !hashFile(dp, &destHash, error, cancelled, hashProgress))
                     return false;
                 if (sourceHash != destHash) {
                     if (error)
@@ -601,6 +631,8 @@ bool CopyEngine::verifyTree(const QString &source, const QString &destination, b
         }
         return false;
     }
+    if (progress && fullHash)
+        progress(verifiedBytes, QString());
     return true;
 }
 

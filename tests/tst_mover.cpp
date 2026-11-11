@@ -35,6 +35,7 @@ private slots:
     void relativeSymlinkMove();
     void doneWithWarningsIsFinished();
     void fullVerificationRejectsSameSizeCorruption();
+    void verificationReportsProgress();
     void shaderCacheDestinationExistsIsWarning();
     void rollbackRejectsUnsafeJournal();
     void prefixMoveToRealDirectory();
@@ -252,6 +253,32 @@ void MoverTest::fullVerificationRejectsSameSizeCorruption()
     QVERIFY(MoveOptions{}.fullVerify);
 }
 
+
+void MoverTest::verificationReportsProgress()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    const QString source = temp.path() + QStringLiteral("/source");
+    const QString destination = temp.path() + QStringLiteral("/destination");
+    QVERIFY(QDir().mkpath(source));
+    const QByteArray payload(512 * 1024, 'V');
+    QVERIFY(testutil::writeFile(source + QStringLiteral("/a.bin"), payload));
+    QVERIFY(testutil::writeFile(source + QStringLiteral("/b.bin"), payload));
+
+    QString error;
+    QVERIFY2(CopyEngine::copyTree(source, destination, {}, {}, nullptr, &error), qPrintable(error));
+    quint64 lastBytes = 0;
+    int calls = 0;
+    QVERIFY2(CopyEngine::verifyTree(
+                 source, destination, true, &error, {},
+                 [&](quint64 bytes, const QString &) {
+                     lastBytes = bytes;
+                     ++calls;
+                 }),
+             qPrintable(error));
+    QVERIFY(calls > 0);
+    QCOMPARE(lastBytes, static_cast<quint64>(payload.size() * 4));
+}
 
 void MoverTest::rollbackRejectsUnsafeJournal()
 {

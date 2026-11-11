@@ -470,7 +470,11 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
                                                    ? QStringLiteral(" (full checksum)")
                                                    : QString());
         setPhase(Phase::Verifying, verifyMessage);
-        notify(Phase::Verifying, verifyMessage, QString(), offset);
+        // Until hashing reports its first chunk, keep verification visually
+        // indeterminate. Reusing the copy offset here would make the bar jump
+        // backwards when hashing starts.
+        emitProgress(progress, Phase::Verifying, verifyMessage, QString(), 0, 0);
+        logger.write(QStringLiteral("Verifying: %1").arg(verifyMessage));
         if (!verifyComponent(&stateError)) {
             if (abortRequested())
                 return abortResult();
