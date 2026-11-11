@@ -37,6 +37,7 @@ private slots:
     void doneWithWarningsIsFinished();
     void fullVerificationRejectsSameSizeCorruption();
     void verificationReportsProgress();
+    void parallelVerificationChecksEveryFile();
     void executorReportsVerificationProgress();
     void sparseFileCopyPreservesHoles();
     void shaderCacheDestinationExistsIsWarning();
@@ -403,6 +404,55 @@ void MoverTest::verificationReportsProgress()
                                      | QFile::ReadOther);
     QFile::setPermissions(second, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup
                                       | QFile::ReadOther);
+}
+
+void MoverTest::parallelVerificationChecksEveryFile()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    const QString source = temp.path() + QStringLiteral("/source");
+    const QString destination = temp.path() + QStringLiteral("/destination");
+    QVERIFY(QDir().mkpath(source));
+
+    constexpr int fileCount = 8;
+    constexpr int fileSize = 600 * 1024;
+    quint64 totalBytes = 0;
+    for (int i = 0; i < fileCount; ++i) {
+        const QByteArray payload(fileSize, static_cast<char>('A' + i));
+        const QString path = source + QStringLiteral("/part-%1.bin").arg(i);
+        QVERIFY(testutil::writeFile(path, payload));
+        totalBytes += static_cast<quint64>(payload.size());
+    }
+
+    QString error;
+    QVERIFY2(CopyEngine::copyTree(source, destination, {}, {}, nullptr, &error),
+             qPrintable(error));
+
+    quint64 lastBytes = 0;
+    int calls = 0;
+    bool monotonic = true;
+    QVERIFY2(CopyEngine::verifyTree(
+                 source, destination, true, &error, {},
+                 [&](quint64 bytes, const QString &) {
+                     monotonic = monotonic && bytes >= lastBytes;
+                     lastBytes = bytes;
+                     ++calls;
+                 }),
+             qPrintable(error));
+    QVERIFY(calls > 0);
+    QVERIFY(monotonic);
+    QCOMPARE(lastBytes, totalBytes);
+
+    const QString corrupted = destination + QStringLiteral("/part-4.bin");
+    QFile file(corrupted);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    const QByteArray replacement(fileSize, 'Z');
+    QCOMPARE(file.write(replacement), static_cast<qint64>(replacement.size()));
+    file.close();
+
+    error.clear();
+    QVERIFY(!CopyEngine::verifyTree(source, destination, true, &error));
+    QVERIFY(error.contains(QStringLiteral("Checksum mismatch")));
 }
 
 void MoverTest::rollbackRejectsUnsafeJournal()

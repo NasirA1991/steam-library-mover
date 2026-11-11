@@ -41,6 +41,8 @@ public:
                          QString *error = nullptr, const PauseFn &paused = {},
                          HashLookup *sourceHashes = nullptr);
 
+    // Full verification may hash independent files in parallel. The progress
+    // callback is serialized; callers must not assume it runs on their thread.
     static bool verifyTree(const QString &source, const QString &destination, bool fullHash,
                            QString *error = nullptr, const CancelFn &cancelled = {},
                            const ProgressFn &progress = {},

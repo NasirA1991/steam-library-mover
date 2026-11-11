@@ -14,9 +14,11 @@
 #include <QHash>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cerrno>
 #include <cstring>
+#include <mutex>
 #include <vector>
 
 #include <fcntl.h>
@@ -512,6 +514,191 @@ bool hashFile(const QString &path, QByteArray *result, QString *error,
     return true;
 }
 
+struct VerifyJob
+{
+    QString sourcePath;
+    QString destinationPath;
+    QString relativePath;
+    quint64 size = 0;
+    CopyEngine::FileHash cached;
+    bool hasCached = false;
+};
+
+struct VerifyProgressState
+{
+    QElapsedTimer timer;
+    std::atomic<quint64> bytes{0};
+    std::atomic<int> cachedFiles{0};
+    std::atomic<int> sourceFilesHashed{0};
+    std::atomic_bool stop{false};
+    std::mutex mutex;
+    QString error;
+    bool failed = false;
+
+    void addBytes(qint64 count, const QString &path, const CopyEngine::ProgressFn &progress)
+    {
+        if (count <= 0)
+            return;
+        bytes.fetch_add(static_cast<quint64>(count), std::memory_order_relaxed);
+        if (!progress)
+            return;
+        std::lock_guard<std::mutex> lock(mutex);
+        if (timer.elapsed() < kProgressIntervalMs)
+            return;
+        progress(bytes.load(std::memory_order_relaxed), path);
+        timer.restart();
+    }
+
+    void fail(const QString &message)
+    {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            if (!failed) {
+                failed = true;
+                error = message;
+            }
+        }
+        stop.store(true, std::memory_order_relaxed);
+    }
+};
+
+bool trustedCachedHash(const QString &sourcePath, const FileEntry &entry,
+                       const CopyEngine::HashLookup *sourceHashes,
+                       CopyEngine::FileHash *cached)
+{
+    if (!sourceHashes || !cached)
+        return false;
+    const auto it = sourceHashes->constFind(entry.relativePath);
+    if (it == sourceHashes->constEnd() || it->sha256.size() != 32
+        || it->size != entry.size || it->mtimeSec != entry.mtimeSec
+        || it->mtimeNsec != entry.mtimeNsec)
+        return false;
+
+    struct stat current {};
+    if (::lstat(QFile::encodeName(sourcePath).constData(), &current) != 0
+        || !S_ISREG(current.st_mode)
+        || static_cast<quint64>(current.st_size) != it->size
+        || current.st_mtim.tv_sec != it->mtimeSec
+        || current.st_mtim.tv_nsec != it->mtimeNsec
+        || current.st_ctim.tv_sec != it->ctimeSec
+        || current.st_ctim.tv_nsec != it->ctimeNsec
+        || static_cast<quint64>(current.st_dev) != it->device
+        || static_cast<quint64>(current.st_ino) != it->inode) {
+        return false;
+    }
+    *cached = it.value();
+    return true;
+}
+
+bool verifyHashedFile(const VerifyJob &job, VerifyProgressState &state,
+                      const CopyEngine::CancelFn &cancelled,
+                      const CopyEngine::ProgressFn &progress)
+{
+    const auto destProgress = [&](qint64 bytes) {
+        state.addBytes(bytes, job.relativePath, progress);
+    };
+    QString hashError;
+    QByteArray destinationHash;
+    if (job.hasCached) {
+        state.cachedFiles.fetch_add(1, std::memory_order_relaxed);
+        if (!hashFile(job.destinationPath, &destinationHash, &hashError, cancelled, destProgress)) {
+            state.fail(hashError);
+            return false;
+        }
+        if (destinationHash != job.cached.sha256) {
+            state.fail(QStringLiteral("Checksum mismatch: %1").arg(job.relativePath));
+            return false;
+        }
+        return true;
+    }
+
+    state.sourceFilesHashed.fetch_add(1, std::memory_order_relaxed);
+    QByteArray sourceHash;
+    if (!hashFile(job.sourcePath, &sourceHash, &hashError, cancelled, {})) {
+        state.fail(hashError);
+        return false;
+    }
+    if (!hashFile(job.destinationPath, &destinationHash, &hashError, cancelled, destProgress)) {
+        state.fail(hashError);
+        return false;
+    }
+    if (sourceHash != destinationHash) {
+        state.fail(QStringLiteral("Checksum mismatch: %1").arg(job.relativePath));
+        return false;
+    }
+    return true;
+}
+
+bool runVerifyJobs(const QVector<VerifyJob> &jobs, bool fullHash,
+                   const CopyEngine::CancelFn &cancelled,
+                   const CopyEngine::ProgressFn &progress,
+                   CopyEngine::VerifyStats *stats, QString *error)
+{
+    if (stats)
+        *stats = CopyEngine::VerifyStats{};
+    if (!fullHash)
+        return true;
+
+    quint64 totalBytes = 0;
+    for (const VerifyJob &job : jobs)
+        totalBytes += job.size;
+    if (jobs.isEmpty()) {
+        if (progress)
+            progress(0, QString());
+        return true;
+    }
+
+    VerifyProgressState state;
+    state.timer.start();
+    unsigned workerCount = 1;
+    if (jobs.size() >= 4 && totalBytes >= 4ull * 1024 * 1024) {
+        workerCount = std::thread::hardware_concurrency();
+        if (workerCount == 0)
+            workerCount = 1;
+        workerCount = std::min<unsigned>(workerCount, 4);
+        workerCount = std::min<unsigned>(workerCount, static_cast<unsigned>(jobs.size()));
+    }
+
+    std::atomic<size_t> nextIndex{0};
+    const auto worker = [&]() {
+        while (!state.stop.load(std::memory_order_relaxed)) {
+            if (cancelled && cancelled()) {
+                state.fail(QStringLiteral("Cancelled by user"));
+                return;
+            }
+            const size_t index = nextIndex.fetch_add(1, std::memory_order_relaxed);
+            if (index >= static_cast<size_t>(jobs.size()))
+                return;
+            if (!verifyHashedFile(jobs.at(static_cast<int>(index)), state, cancelled, progress))
+                return;
+        }
+    };
+
+    if (workerCount <= 1) {
+        worker();
+    } else {
+        std::vector<std::thread> threads;
+        threads.reserve(workerCount);
+        for (unsigned i = 0; i < workerCount; ++i)
+            threads.emplace_back(worker);
+        for (std::thread &thread : threads)
+            thread.join();
+    }
+
+    if (stats) {
+        stats->cachedFiles = state.cachedFiles.load(std::memory_order_relaxed);
+        stats->sourceFilesHashed = state.sourceFilesHashed.load(std::memory_order_relaxed);
+    }
+    if (state.failed) {
+        if (error)
+            *error = state.error;
+        return false;
+    }
+    if (progress)
+        progress(state.bytes.load(std::memory_order_relaxed), QString());
+    return true;
+}
+
 } // namespace
 
 bool CopyEngine::copyTree(const QString &source, const QString &destination,
@@ -739,9 +926,7 @@ bool CopyEngine::verifyTree(const QString &source, const QString &destination, b
         return false;
     }
 
-    quint64 verifiedBytes = 0;
-    QElapsedTimer verifyTimer;
-    verifyTimer.start();
+    QVector<VerifyJob> hashJobs;
 
     QHash<QString, const FileEntry *> destEntries;
     int extra = 0;
@@ -778,67 +963,14 @@ bool CopyEngine::verifyTree(const QString &source, const QString &destination, b
                 return false;
             }
             if (fullHash) {
-                const QString sp = source + QLatin1Char('/') + sourceEntry.relativePath;
-                const QString dp = destination + QLatin1Char('/') + destEntry.relativePath;
-                auto hashProgress = [&](qint64 bytes) {
-                    verifiedBytes += static_cast<quint64>(bytes);
-                    if (progress && verifyTimer.elapsed() >= kProgressIntervalMs) {
-                        progress(verifiedBytes, sourceEntry.relativePath);
-                        verifyTimer.restart();
-                    }
-                };
-
-                // A normal or sparse copy hashed the source while it was copied.
-                // Reuse that digest only while the fresh source scan still shows
-                // the same size and timestamps; otherwise fall back to hashing
-                // both sides, which also covers reflinks and skipped hardlinks.
-                const FileHash *cached = nullptr;
-                if (sourceHashes) {
-                    const auto it = sourceHashes->constFind(sourceEntry.relativePath);
-                    if (it != sourceHashes->constEnd()
-                        && it->sha256.size() == 32
-                        && it->size == sourceEntry.size
-                        && it->mtimeSec == sourceEntry.mtimeSec
-                        && it->mtimeNsec == sourceEntry.mtimeNsec) {
-                        struct stat current {};
-                        if (::lstat(QFile::encodeName(sp).constData(), &current) == 0
-                            && S_ISREG(current.st_mode)
-                            && static_cast<quint64>(current.st_size) == it->size
-                            && current.st_mtim.tv_sec == it->mtimeSec
-                            && current.st_mtim.tv_nsec == it->mtimeNsec
-                            && current.st_ctim.tv_sec == it->ctimeSec
-                            && current.st_ctim.tv_nsec == it->ctimeNsec
-                            && static_cast<quint64>(current.st_dev) == it->device
-                            && static_cast<quint64>(current.st_ino) == it->inode) {
-                            cached = &it.value();
-                        }
-                    }
-                }
-
-                QByteArray destHash;
-                if (cached) {
-                    if (stats)
-                        ++stats->cachedFiles;
-                    if (!hashFile(dp, &destHash, error, cancelled, hashProgress))
-                        return false;
-                    if (destHash != cached->sha256) {
-                        if (error)
-                            *error = QStringLiteral("Checksum mismatch: %1").arg(sourceEntry.relativePath);
-                        return false;
-                    }
-                } else {
-                    if (stats)
-                        ++stats->sourceFilesHashed;
-                    QByteArray sourceHash;
-                    if (!hashFile(sp, &sourceHash, error, cancelled, {})
-                        || !hashFile(dp, &destHash, error, cancelled, hashProgress))
-                        return false;
-                    if (sourceHash != destHash) {
-                        if (error)
-                            *error = QStringLiteral("Checksum mismatch: %1").arg(sourceEntry.relativePath);
-                        return false;
-                    }
-                }
+                VerifyJob job;
+                job.sourcePath = source + QLatin1Char('/') + sourceEntry.relativePath;
+                job.destinationPath = destination + QLatin1Char('/') + destEntry.relativePath;
+                job.relativePath = sourceEntry.relativePath;
+                job.size = sourceEntry.size;
+                job.hasCached = trustedCachedHash(job.sourcePath, sourceEntry, sourceHashes,
+                                                  &job.cached);
+                hashJobs.append(job);
             }
             break;
         case FileEntryType::Symlink:
@@ -867,9 +999,7 @@ bool CopyEngine::verifyTree(const QString &source, const QString &destination, b
         }
         return false;
     }
-    if (progress && fullHash)
-        progress(verifiedBytes, QString());
-    return true;
+    return runVerifyJobs(hashJobs, fullHash, cancelled, progress, stats, error);
 }
 
 } // namespace slm

@@ -7,7 +7,8 @@
   order; copied source pages are dropped from the page cache.
 - Copy completion replaces files and symlinks with an atomic `rename(2)` instead of unlinking
   the old destination first.
-- Full verification now reports hashed bytes instead of showing an indeterminate progress bar.
+- Full verification now reports hashed bytes instead of showing an indeterminate progress bar, and
+  hashes up to four files concurrently on larger trees while keeping progress monotonic.
 - Normal and sparse copies retain a source SHA-256 captured while copying, so full verification
   reads only the destination unless the source size, timestamps, inode or ctime changed. Reflinks
   and other uncached entries fall back to hashing both sides.
