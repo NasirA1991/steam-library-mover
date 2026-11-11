@@ -21,7 +21,9 @@ Release artifacts are built by GitHub Actions when a `v*` tag is pushed. The wor
 - GitHub build-provenance attestations for the AppImage, Arch package, source archive and
   checksums.
 
-The current release is published as the latest GitHub release so the README `/releases/latest` AppImage link works. This is separate from the project maturity: `0.x` is still alpha and the README says so.
+The current release is published as the latest GitHub release so the README `/releases/latest`
+AppImage link works. This is separate from project maturity: `0.x` is still alpha and the README says
+so.
 
 ## AppImage
 
@@ -38,8 +40,8 @@ export APPIMAGE_EXTRACT_AND_RUN=1
 packaging/appimage/build-appimage.sh
 ```
 
-Build against Qt 6.8 (not a distro Qt with unbundlable KDE image plugins). Test the result on a
-clean KDE system and a non-KDE distribution. FUSE2 is required unless using
+Build against Qt 6.8, not a distro Qt with KDE image plugins that cannot be bundled. Test the result
+on a clean KDE system and a non-KDE distribution. FUSE 2 is required unless using
 `APPIMAGE_EXTRACT_AND_RUN=1`.
 
 ## AUR
@@ -51,10 +53,10 @@ Recipes:
 
 Maintainer: **Nasir A <evilleader91@gmail.com>**.
 
-The release workflow runs `updpkgsums`, builds the package in `archlinux:latest`, and the separate
-[`aur.yml`](../.github/workflows/aur.yml) workflow publishes the recipe to AUR on a `v*` tag or a
-manual dispatch. The repository keeps the checksum for the current release and regenerates it from
-the tagged source at release time. To reproduce the recipe locally:
+The release workflow builds the package in `archlinux:latest`. The separate
+[`aur.yml`](../.github/workflows/aur.yml) workflow runs `updpkgsums` and publishes the recipe to AUR
+on a `v*` tag or a manual dispatch. The AUR repository keeps the published checksum and the
+workflow regenerates it from the tagged source at release time. To reproduce the recipe locally:
 
 ```bash
 cd packaging/aur
@@ -114,7 +116,8 @@ Flathub submission also needs a tagged source (not `type: dir`), screenshots in 
 
 ## Release checklist
 
-- [ ] Version bumped in `CMakeLists.txt`, metainfo release entry and release notes.
+- [ ] Version bumped in `CMakeLists.txt`, metainfo release entry, `README.md`, AUR
+      recipe/`.SRCINFO`, AUR workflow default and release notes.
 - [ ] `ctest` green locally and in CI.
 - [ ] Manual smoke test completed on a writable Steam library.
 - [ ] AppImage extracted and launched.

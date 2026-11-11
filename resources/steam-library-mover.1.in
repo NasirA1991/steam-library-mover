@@ -36,22 +36,25 @@ Show version.
 Use an explicit Steam installation root.
 .TP
 .B \-\-json
-Emit machine-readable JSON where supported.
+Emit JSON for \fBlist\fP, \fBplan\fP, \fBmove\fP, \fBdoctor\fP and
+\fBhealth\fP.
 .TP
 .BI \-\-appid " id"
 Steam application id for \fBplan\fP or \fBmove\fP.
 .TP
 .BI \-\-to " path"
-Destination Steam library path.
+Destination Steam library path for \fBplan\fP and \fBmove\fP; optional
+compatdata target for \fBfix-compatdata\fP.
 .TP
 .B \-\-dry-run
-Plan without modifying files.
+With \fBmove\fP, print the plan without modifying files.
 .TP
 .B \-\-yes
 Confirm a move or \fBhealth \-\-apply\fP.
 .TP
-.BI \-\-verify " quick|full"
-Verification mode.
+.BI \-\-verify " full|quick"
+Verification mode for \fBplan\fP and \fBmove\fP. The default is \fBfull\fP
+(SHA-256); \fBquick\fP checks paths and sizes only.
 .TP
 .B \-\-no-shadercache
 Do not move shader cache.
@@ -72,16 +75,20 @@ shader cache and Workshop data in hidden
 folders. Source space is not freed until those folders are removed manually.
 .TP
 .BI \-\-library " path"
-Steam library path for \fBdoctor\fP or \fBfix-compatdata\fP.
+Steam library path for \fBfix-compatdata\fP.
 .TP
 .B \-\-apply
-Apply doctor changes, or quarantine safe lock/temp files for \fBhealth\fP.
+Apply \fBfix-compatdata\fP changes, or quarantine safe lock/temp files for
+\fBhealth\fP.
 .TP
 .B \-\-list
 List unfinished operations for \fBrecover\fP.
 .TP
 .BI \-\-rollback " opid"
-Roll back an unfinished operation.
+Roll back an unfinished operation while the source manifest still exists.
+.TP
+.BI \-\-resume " opid"
+Resume an operation interrupted before the manifest commit.
 .SH COMMANDS
 .TP
 .B list
@@ -104,13 +111,16 @@ folders. Quarantine renames, never deletes, and is refused while Steam or a
 Proton/Wine game is running.
 .TP
 .B doctor
-Inspect NTFS/exFAT compatibility and Proton prefix placement.
+Inspect NTFS/exFAT compatibility and Proton prefix placement. Read-only.
 .TP
 .B fix-compatdata
-Configure a compatdata symlink for an NTFS library.
+Configure a compatdata symlink for an NTFS library. Dry run unless
+\fB\-\-apply\fP is supplied; requires \fB\-\-library\fP and requires Steam to be
+closed.
 .TP
 .B recover
-List or roll back unfinished operations.
+List, resume or roll back unfinished operations. Use exactly one of
+\fB\-\-list\fP, \fB\-\-resume\fP or \fB\-\-rollback\fP.
 .SH GUI
 The desktop application adds:
 .IP \(bu 2
@@ -133,6 +143,22 @@ System, Light and Dark themes;
 .IP \(bu 2
 sleep inhibition, desktop completion notifications and an optional Start Steam
 action.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Usage error, scan failure, missing operation or another command error.
+.TP
+.B 2
+Safety refusal: blockers, missing \fB\-\-yes\fP, or Steam running for a command
+that requires it to be closed. \fBhealth \-\-apply\fP without \fB\-\-yes\fP
+returns 1 instead.
+.TP
+.B 3
+A move failed during execution. Inspect the printed journal path and use
+\fBrecover \-\-list\fP.
 .SH ENVIRONMENT
 .TP
 .B SLM_STEAM_ROOT
@@ -155,15 +181,15 @@ Force \fBsystem\fP, \fBlight\fP or \fBdark\fP for the current run.
 .SH FILES
 .TP
 .I ~/.local/state/steam-library-mover/
-Journals, logs, backups and quarantine metadata.
+Journals, logs and backups.
 .TP
 .I ~/.cache/steam-library-mover/artwork/
 Cached box art.
 .SH SEE ALSO
 .BR steam (1)
 .PP
-Project documentation: README.md, docs/SAFETY.md, docs/NTFS.md and
-docs/TESTING.md.
+Project documentation: README.md, docs/INSTALL.md, docs/CLI.md,
+docs/SAFETY.md, docs/NTFS.md, docs/ARCHITECTURE.md and docs/TESTING.md.
 .SH AUTHOR
 Steam Library Mover contributors. GPL-3.0-or-later. Not affiliated with Valve
 Corporation. Steam is a trademark of Valve Corporation.

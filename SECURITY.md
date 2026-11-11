@@ -19,8 +19,15 @@ Include:
 
 Please do not publish exploit details for a destructive data-loss issue until a fix is available.
 
+## Supported versions
+
+The current public release is the supported version for security fixes. The project is in public
+alpha (`0.x`); older releases may not receive backports. Include the exact version or commit in a
+report so the affected code can be identified.
+
 ## Scope
 
 The application does not use telemetry and does not require a Steam API key. Optional box-art
 downloads use Steam's public CDN; they can be disabled in Settings. Credentials and Steam login
-tokens are not read or transmitted by this project.
+tokens are not read or transmitted by this project. See the [safety model](docs/SAFETY.md) for the
+move transaction and deletion rules.

@@ -1,60 +1,94 @@
-# Roadmap decisions
+# Roadmap
 
-This is a deliberately safety-first review of the larger improvement roadmap, current to
-0.1.0 development builds.
+Steam Library Mover is a public alpha project. The roadmap is a record of priorities and boundaries,
+not a dated delivery schedule. Safety, data preservation and recoverability come before new
+convenience features.
 
-## Adopted now
+Current public release: **v0.1.9**. Shipped behavior is documented in the
+[release notes](RELEASE_NOTES.md) and [changelog](../CHANGELOG.md); this page describes what is
+being considered next and what the project deliberately does not do.
 
-- **Library Health and stale-lock cleanup.** Read-only scan for stale `.lock` and manifest temp
-  files, orphaned payloads/prefixes/shadercache/Workshop data, duplicate appids, broken compatdata
-  links and source backups. Quarantine renames safe lock/temp files into hidden
-  `.slm-quarantine` folders; it never deletes them. CLI: `steam-library-mover-cli health`.
-- **Theme and contrast work.** System/Light/Dark palettes, runtime switching, corrected library
-  delegate colours, status symbols, readable secondary text and warning colours. Explicit
-  Light/Dark use Fusion for consistent menubar/toolbar chrome; the KDE title bar remains a system
-  window-decoration choice.
-- **NTFS Doctor clarity.** The Doctor now states explicitly when every NTFS library already has a
-  valid compatdata symlink, distinguishes configured/broken/missing states, and treats an existing
-  correct target as a no-op instead of trying to recreate the symlink.
-- **Reflink copy fast path.** `FICLONE` is attempted for each regular file. On Btrfs/XFS and other
-  reflink-capable filesystems the destination is instant and space-efficient; unsupported
-  filesystems fall back to the normal byte copy. Verification and journaling are unchanged.
-- **UI polish.** Short status badges (with Ready rows left quiet), a populated empty details pane,
-  compact rows by default, a draggable table/details splitter, a slim Steam-closed banner, clickable
-  column sorting, filter counts, selected-game count, relative last-played dates, custom drive-type
-  bars, usage text, destination free-space projections/disabled impossible targets, staged progress,
-  explicit checkboxes, a transfer summary strip, a collapsible details bar and a Preflight-only review
-  with speed/ETA and cancellation during verification, a transfer-space tooltip, context menu
-  actions, minimum window width, full-path tooltips, and less-clipped Doctor/Health tables.
-- **Existing batch features retained.** Multi-select queue, drag-and-drop, pause/resume,
-  keep-source backups, notifications, sleep inhibition and Start Steam.
+## Current baseline
+
+The following are implemented and supported in the current release:
+
+- Review-before-move planning with blockers, storage projections and NTFS/exFAT/FAT32 checks.
+- Journaled copy → verify → sync → manifest/VDF commit → source cleanup.
+- Resume of operations interrupted before the manifest commit, including one automatic
+  remove-and-recopy repair of a failed verification.
+- Rollback while the source manifest still exists.
+- Machine-wide instance lock and mid-copy Steam/Proton/Wine process monitoring.
+- Full SHA-256 verification by default; quick verification as an explicit opt-out.
+- Batch moves, pause/resume, cancellation, keep-source backups and optional reflink copies.
+- Library Health scanning and quarantine of stale lock/temp files.
+- NTFS Doctor and shared `compatdata` symlink setup.
+- GUI, CLI, desktop notifications, themes and sleep inhibition.
+- AUR and AppImage release artifacts, with build-provenance attestations.
+
+## Next candidates
+
+These are candidates, not commitments. Work is accepted when it can preserve the transaction and
+recovery guarantees and can be tested without risking a real library.
+
+### Performance and copy efficiency
+
+- Hash during copy and reuse those hashes for destination-only verification, instead of reading both
+  trees again.
+- Per-file hashes stored in the journal for faster verification and reliable resume.
+- Bounded parallel copying and hashing, with deterministic progress and cancellation.
+- `copy_file_range` and `posix_fadvise` refinements.
+- Sparse-file preservation with `SEEK_HOLE`/`SEEK_DATA`.
+- Cache per-filesystem-pair reflink support instead of retrying known-unsupported clones.
+- Reuse the planned file tree after cheap revalidation.
+
+### Reliability and testing
+
+- Crash injection across every executor phase, including power-loss-style interruptions.
+- Privileged loopback NTFS integration in CI.
+- More fault-injection tests for deletion, rollback and recovery edge cases.
+- Flatpak host-process detection and shutdown validation, if a confined build can be made safe.
+
+### Usability and maintainability
+
+- Split the main window into focused dialogs and a transfer-queue controller.
+- Complete settings and window-layout persistence.
+- Translation-ready strings and keyboard/accessibility review.
+- Clearer verification progress and recovery descriptions.
+- Per-game selection controls in the review dialog.
 
 ## Deliberately deferred
 
-- **Create/register Steam libraries** (roadmap item 7). The user explicitly does not want the
-  application adding new libraries or drive entries to Steam's database. This remains a non-goal
-  unless that policy changes.
-- **Adopt unregistered games.** Creating or synthesising manifests is higher risk than moving a
-  game Steam already knows about. Keep it experimental and out of the stable flow.
-- **Same-filesystem directory rename.** Atomic whole-directory renames conflict with the existing
-  per-component journal/rollback model and can fail across Btrfs subvolumes. The reflink path
-  captures much of the benefit without changing rollback semantics.
-- **Crash-resume and one-click Undo.** Valuable, but need a per-file resumable journal and reverse
-  operation design with crash-injection tests. Do not bolt them onto the current journal.
-- **Guided destructive repairs** (delete stale manifest, delete orphan payload/prefix, reclaim
-  space). Library Health detects and explains these; automatic deletion needs a preview and a
-  stronger journaled operation.
-- **Library UUID identity / automatic relocation.** Rewriting library paths in Steam metadata is a
-  database mutation and needs careful multi-mount testing.
-- **Prefix/launch-option path rewriting.** Detection should come before rewriting. A bad rewrite can
-  break saves or wrappers; this deserves its own preflight and test fixtures.
-- **Rules/tiering, SMART warnings, scheduled moves, D-Bus API.** Useful later; they add automation
-  risk and should stay reviewable, never silent.
-- **Flatpak host-process validation.** The Flatpak build remains gated until host process detection
-  and Flatpak Steam permissions are tested.
+These ideas may be useful, but the current design is not ready for them. They need a separate safety
+case and tests before implementation.
+
+- **Same-filesystem directory rename.** Whole-directory renames conflict with the per-component
+  journal and rollback model and can fail across Btrfs subvolumes. The reflink path captures much of
+  the speed benefit without changing rollback semantics.
+- **Undo after a completed move.** A reliable reverse operation needs a stronger reverse journal and
+  crash tests. Resume before the manifest commit is supported; one-click undo is not.
+- **Guided destructive repairs.** Library Health detects and explains orphaned payloads, prefixes and
+  caches. Automatically deleting them needs a preview and a journaled operation.
+- **Library identity and automatic relocation.** Rewriting library paths in Steam metadata is a
+  database mutation and needs multi-mount testing.
+- **Prefix or launch-option path rewriting.** Detection should come before rewriting; a bad rewrite
+  can break saves or wrappers.
+- **Scheduled moves, SMART-driven tiering, D-Bus automation.** These add automation risk and should
+  stay reviewable rather than silent.
+- **Flatpak as a release artifact.** The experimental build is not shipped until host process
+  detection and sandbox permissions are validated.
 
 ## Non-goals
 
-- Downloading or validating games outside Steam's ownership checks.
-- Bypassing Steam's library management or adding unrequested database entries.
+- Creating or registering new Steam libraries or adding drive entries to Steam's database.
+- Downloading, validating or adopting games outside Steam's ownership and manifest model.
+- Bypassing Steam's library management.
 - Managing non-Steam launchers in the core mover.
+- Reading or transmitting Steam credentials, tokens or cloud-save data.
+
+## Decision principles
+
+1. Do not modify a library until the plan is explicit and the destination is safe.
+2. Keep the source authoritative until the destination is verified and the manifest commit succeeds.
+3. Refuse ambiguous filesystems, paths and process states rather than guessing.
+4. Make every destructive action journaled, recoverable or both.
+5. Prefer small, testable changes over broad automation.

@@ -517,8 +517,8 @@ int main(int argc, char **argv)
     parser.addOption({QStringLiteral("allow-ntfs"), QStringLiteral("Acknowledge Windows-filesystem risks")});
     parser.addOption({QStringLiteral("quit-steam"), QStringLiteral("Ask Steam to shut down")});
     parser.addOption({QStringLiteral("keep-source"), QStringLiteral("Leave moved source payload as hidden backups")});
-    parser.addOption({QStringLiteral("library"), QStringLiteral("Steam library path"), QStringLiteral("path")});
-    parser.addOption({QStringLiteral("apply"), QStringLiteral("Apply doctor changes")});
+    parser.addOption({QStringLiteral("library"), QStringLiteral("Steam library path for fix-compatdata"), QStringLiteral("path")});
+    parser.addOption({QStringLiteral("apply"), QStringLiteral("Apply fix-compatdata changes or health quarantine")});
     parser.addOption({QStringLiteral("list"), QStringLiteral("List unfinished operations")});
     parser.addOption({QStringLiteral("rollback"), QStringLiteral("Rollback operation id"), QStringLiteral("id")});
     parser.addOption({QStringLiteral("resume"), QStringLiteral("Resume an interrupted operation id"),
