@@ -182,8 +182,10 @@ MainWindow::~MainWindow()
 void MainWindow::buildUi()
 {
     setWindowTitle(QStringLiteral("Steam Library Mover"));
-    resize(1280, 820);
     setMinimumSize(1100, 720);
+    QSettings settings;
+    if (!restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray()))
+        resize(1280, 820);
 
     auto *fileMenu = menuBar()->addMenu(QStringLiteral("&File"));
     m_rescanAction = fileMenu->addAction(QIcon::fromTheme(QStringLiteral("view-refresh")),
@@ -3300,5 +3302,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
         if (thread)
             thread->wait();
     }
+    QSettings settings;
+    settings.setValue(QStringLiteral("window/geometry"), saveGeometry());
     event->accept();
 }

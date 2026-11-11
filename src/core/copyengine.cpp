@@ -128,6 +128,9 @@ bool copyRegularFile(const QString &source, const QString &destination, const Fi
         return false;
     }
 
+    // Game payloads are read and written front-to-back once. Tell the kernel so
+    // it can drop readahead and writeback the destination in order.
+    (void)::posix_fadvise(input, 0, 0, POSIX_FADV_SEQUENTIAL);
     const QString temporary = QFileInfo(destination).absolutePath() + QStringLiteral("/.slm-part-")
         + QString::number(::getpid()) + QLatin1Char('-')
         + QString::number(static_cast<qulonglong>(QDateTime::currentMSecsSinceEpoch()));
@@ -139,6 +142,8 @@ bool copyRegularFile(const QString &source, const QString &destination, const Fi
             *error = QStringLiteral("Cannot create temporary file %1: %2").arg(temporary, errnoString());
         return false;
     }
+
+    (void)::posix_fadvise(output, 0, 0, POSIX_FADV_SEQUENTIAL);
 
     bool ok = true;
     bool cloned = false;
