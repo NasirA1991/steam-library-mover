@@ -99,7 +99,7 @@ chmod +x Steam_Library_Mover-x86_64.AppImage
   <img src="docs/screenshots/transfer-progress.png" alt="Transfer progress" width="46%">
 </p>
 
-<p align="center"><sub>Current build v0.1.8. Screenshots use a demo library. Review every move before it starts; unsafe destinations are explained instead of being attempted.</sub></p>
+<p align="center"><sub>Current build v0.1.9. Screenshots use a demo library. Review every move before it starts; unsafe destinations are explained instead of being attempted.</sub></p>
 
 ## How to move a game
 
@@ -123,7 +123,10 @@ manifest has been updated. If something fails before that point, the source rema
 - **NTFS preflight** — detects Windows-invalid names, reserved names, case collisions and
   executable-bit risks before copying to NTFS/exFAT/FAT32.
 - **Journaled and recoverable** — every operation is recorded; interrupted copies can be resumed
-  from the Recovery dialog, and unsafe states can be rolled back.
+  from the Recovery dialog, a failed verification is repaired once automatically, and unsafe
+  states can be rolled back.
+- **Single-writer safety** — a machine-wide lock prevents overlapping GUI/CLI moves, and finished
+  journals are pruned while recoverable ones are retained.
 - **Monitored during the copy** — if Steam, a game or a Proton/Wine process starts mid-move, the
   operation stops before the manifest commit; close it and resume.
 - **Batch moves** — move several games in one queue, pause/resume, cancel safely and keep source

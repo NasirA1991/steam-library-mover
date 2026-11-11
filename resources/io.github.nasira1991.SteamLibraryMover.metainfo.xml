@@ -59,6 +59,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.9" date="2026-11-11">
+      <description>
+        <p>Adds resume and automatic repair for interrupted copies, descriptor-relative deletion, a machine-wide lock, mid-copy process monitoring, asynchronous Steam shutdown, journal retention, and pinned release supply-chain tooling.</p>
+      </description>
+    </release>
     <release version="0.1.8" date="2026-11-11">
       <description>
         <p>Fixes the NTFS acknowledgement bypass, revalidates disk state before and during the commit, adds recovery actions, and corrects verification, parser and pause/ETA edge cases.</p>

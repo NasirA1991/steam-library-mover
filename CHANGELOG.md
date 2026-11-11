@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.9 — unreleased
+## 0.1.9 — 2026-11-11
 
 - Recovery can resume an interrupted copy before the manifest commit. Verified destination
   components are reused; incomplete or corrupt components are removed and copied again.
@@ -17,6 +17,8 @@
   window stays responsive while Steam exits.
 - Journals for finished moves are pruned to the 20 most recent after a move; unfinished,
   failed and cancelled operations are retained until you recover or forget them.
+- Release workflows pin third-party actions to commit SHAs and packaging tools to tagged
+  releases with verified checksums; release artifacts carry GitHub build-provenance attestations.
 
 ## 0.1.8 — 2026-11-11
 
