@@ -70,6 +70,20 @@ void addBytesForMount(MovePlan &plan, const MountTable &mounts, const QString &d
     plan.freePerMount.insert(key, mount.freeBytes);
 }
 
+
+void addUnsupportedTypes(MovePlan &plan, const FileTree &tree, ComponentKind kind)
+{
+    for (const FileEntry &entry : tree.entries) {
+        if (entry.type != FileEntryType::Other)
+            continue;
+        addIssue(plan, Severity::Blocker, QStringLiteral("unsupported-file-type"),
+                 QStringLiteral("%1 contains an unsupported file type")
+                     .arg(componentKindName(kind)),
+                 entry.relativePath);
+        return;
+    }
+}
+
 void addTreeComponent(MovePlan &plan, const MountTable &mounts, ComponentKind kind,
                       const QString &source, const QString &destination, bool required,
                       bool windowsDestination, bool fat32Destination, const QString &note = {})
@@ -80,6 +94,7 @@ void addTreeComponent(MovePlan &plan, const MountTable &mounts, ComponentKind ki
                  QStringLiteral("Cannot scan %1").arg(componentKindName(kind)), tree.error);
         return;
     }
+    addUnsupportedTypes(plan, tree, kind);
     if (destinationExists(destination)) {
         addIssue(plan, Severity::Blocker, QStringLiteral("destination-exists"),
                  QStringLiteral("%1 already exists at the destination").arg(componentKindName(kind)),
@@ -194,6 +209,17 @@ QStringList MovePlanner::processPrefixPaths(const SteamScan &scan, const Game &g
     return prefixes;
 }
 
+bool hasWindowsFilesystemWarning(const MovePlan &plan)
+{
+    for (const Issue &issue : plan.issues) {
+        if (issue.code == QStringLiteral("windows-filesystem")
+            || issue.code == QStringLiteral("windows-filesystem-ack")
+            || issue.code == QStringLiteral("ntfs-exec-bits"))
+            return true;
+    }
+    return false;
+}
+
 MovePlan MovePlanner::plan(const SteamScan &scan, quint32 appId, const QString &destinationLibrary,
                            const MoveOptions &options, const MountTable &mounts, QString *error,
                            const QMap<QString, quint64> &reservedBytes)
@@ -305,6 +331,14 @@ MovePlan MovePlanner::plan(const SteamScan &scan, quint32 appId, const QString &
                  QStringLiteral("%1. Use a recognized native, NTFS or exFAT filesystem.")
                      .arg(dest->mount.describe()));
     }
+    if (dest->mount.fsType == QStringLiteral("tmpfs")
+        || dest->mount.fsType == QStringLiteral("ramfs")
+        || dest->mount.fsType == QStringLiteral("overlay")) {
+        addIssue(plan, Severity::Warning, QStringLiteral("volatile-filesystem"),
+                 QStringLiteral("Destination is RAM-backed or an overlay"),
+                 QStringLiteral("Data may not survive a reboot or may be hidden by the overlay. "
+                                "Use a persistent local block filesystem for game data."));
+    }
     if (dest->mount.fsType.compare(QStringLiteral("fuseblk"), Qt::CaseInsensitive) == 0) {
         addIssue(plan, Severity::Warning, QStringLiteral("fuseblk-ambiguous"),
                  QStringLiteral("The destination is a FUSE block filesystem"),
@@ -351,6 +385,7 @@ MovePlan MovePlanner::plan(const SteamScan &scan, quint32 appId, const QString &
         addIssue(plan, Severity::Blocker, QStringLiteral("scan-game-failed"),
                  QStringLiteral("Cannot scan the game directory"), gameTree.error);
     } else {
+        addUnsupportedTypes(plan, gameTree, ComponentKind::Game);
         if (destinationExists(destGame)) {
             addIssue(plan, Severity::Blocker, QStringLiteral("destination-game-exists"),
                      QStringLiteral("The game directory already exists at the destination"),
@@ -667,6 +702,38 @@ bool MovePlanner::refreshVdfSnapshot(MovePlan &plan, QString *error)
     plan.snapshot.vdfSize = info.size();
     if (error)
         error->clear();
+    return true;
+}
+
+
+bool MovePlanner::revalidateMountState(const MovePlan &plan, const MountTable &mounts, QString *error)
+{
+    const auto fail = [&](const QString &message) {
+        if (error)
+            *error = message;
+        return false;
+    };
+    const auto check = [&](const QString &path, quint64 needed, const QString &label) -> bool {
+        const MountInfo mount = mounts.forPath(path);
+        if (mount.mountPoint.isEmpty())
+            return fail(QStringLiteral("%1 is no longer on a known filesystem: %2").arg(label, path));
+        if (mount.readOnly)
+            return fail(QStringLiteral("%1 is now mounted read-only: %2").arg(label, path));
+        if (mount.isNetwork())
+            return fail(QStringLiteral("%1 is now on a network filesystem: %2").arg(label, path));
+        if (mount.freeBytes > 0 && needed > 0 && mount.freeBytes < needed)
+            return fail(QStringLiteral("%1 no longer has enough free space: %2")
+                            .arg(label, mount.mountPoint));
+        return true;
+    };
+    if (!check(plan.sourceLibraryPath, 0, QStringLiteral("Source library")))
+        return false;
+    if (!check(plan.destLibraryPath, 0, QStringLiteral("Destination library")))
+        return false;
+    for (auto it = plan.bytesPerMount.constBegin(); it != plan.bytesPerMount.constEnd(); ++it) {
+        if (!check(it.key(), it.value(), QStringLiteral("Destination component")))
+            return false;
+    }
     return true;
 }
 

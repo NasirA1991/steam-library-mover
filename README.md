@@ -219,6 +219,12 @@ If a move is blocked and you are unsure why, the **Why blocked?** button in the 
 includes the exact paths and guidance. If the problem is not explained there, open an issue:
 https://github.com/NasirA1991/steam-library-mover/issues
 
+## Privacy
+
+Steam Library Mover does not include telemetry or require an account. By default it fetches game
+cover art from Valve's public Steam CDN; that request includes the game's appid and your IP address.
+Disable artwork in **Settings** or set `SLM_DISABLE_ARTWORK=1` to keep the app fully local.
+
 ## Documentation
 
 - [Safety model](docs/SAFETY.md)

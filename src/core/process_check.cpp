@@ -224,9 +224,21 @@ QString steamLaunchCommand(InstallKind kind)
     }
 }
 
+QString nativeSteamProgram()
+{
+    const QStringList candidates = {QStringLiteral("/usr/bin/steam"),
+                                    QStringLiteral("/usr/local/bin/steam"),
+                                    QStringLiteral("/bin/steam")};
+    for (const QString &candidate : candidates) {
+        if (QFileInfo::exists(candidate))
+            return candidate;
+    }
+    return QStringLiteral("steam");
+}
+
 bool startSteam(InstallKind kind, QString *error)
 {
-    QString program = QStringLiteral("steam");
+    QString program = nativeSteamProgram();
     QStringList arguments;
     if (kind == InstallKind::Flatpak) {
         program = QStringLiteral("flatpak");
@@ -247,7 +259,7 @@ bool startSteam(InstallKind kind, QString *error)
 
 bool requestSteamShutdown(InstallKind kind, QString *error)
 {
-    QString program = QStringLiteral("steam");
+    QString program = nativeSteamProgram();
     QStringList arguments{QStringLiteral("-shutdown")};
     if (kind == InstallKind::Flatpak) {
         program = QStringLiteral("flatpak");

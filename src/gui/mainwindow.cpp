@@ -132,15 +132,6 @@ QString issueLines(const QVector<slm::Issue> &issues)
     return lines.join(QLatin1Char('\n'));
 }
 
-bool hasNtfsWarning(const slm::MovePlan &plan)
-{
-    for (const slm::Issue &issue : plan.issues) {
-        if (issue.code == QStringLiteral("windows-filesystem")
-            || issue.code == QStringLiteral("ntfs-exec-bits"))
-            return true;
-    }
-    return false;
-}
 
 } // namespace
 
@@ -894,6 +885,8 @@ void MainWindow::showGameContextMenu(const QPoint &pos)
     bool anyDestination = false;
     for (int i = 0; i < m_destination->count(); ++i) {
         const QString path = m_destination->itemData(i).toString();
+        if (path.isEmpty())
+            continue;
         if (slm::canonicalOrAbsolute(path) == slm::canonicalOrAbsolute(library->path))
             continue;
         anyDestination = true;
@@ -1721,7 +1714,7 @@ void MainWindow::showBatchReview()
     QVector<slm::Issue> blockers;
     QSet<QString> blockerSeen;
     for (const slm::MovePlan &plan : m_batchPlans) {
-        ntfsWarning = ntfsWarning || hasNtfsWarning(plan);
+        ntfsWarning = ntfsWarning || slm::hasWindowsFilesystemWarning(plan);
         totalBytes += plan.totalBytes;
         payloadBytes += plan.game.sizeOnDisk;
         const slm::Library *sourceLibrary = libraryFor(plan.game.libraryPath);
@@ -2197,15 +2190,20 @@ void MainWindow::showBatchReview()
     if (dialog.exec() != QDialog::Accepted)
         return;
 
+    if (ack && !ack->isChecked())
+        return; // unreachable through the UI, but never strip an unacknowledged blocker
+
     for (slm::MovePlan &plan : m_batchPlans) {
         plan.options.fullVerify = fullVerify->isChecked();
-        plan.options.allowNtfsNative = true;
+        plan.options.allowNtfsNative = ack != nullptr && ack->isChecked();
         plan.options.keepSourceBackup = keepBackup->isChecked();
-        // The core planner emitted this blocker because the GUI had not yet
-        // collected the acknowledgement. The user has now explicitly confirmed it.
-        for (int i = plan.issues.size() - 1; i >= 0; --i) {
-            if (plan.issues.at(i).code == QStringLiteral("windows-filesystem-ack"))
-                plan.issues.removeAt(i);
+        if (plan.options.allowNtfsNative) {
+            // The core planner emitted this blocker because the GUI had not yet
+            // collected the acknowledgement. The user has now explicitly confirmed it.
+            for (int i = plan.issues.size() - 1; i >= 0; --i) {
+                if (plan.issues.at(i).code == QStringLiteral("windows-filesystem-ack"))
+                    plan.issues.removeAt(i);
+            }
         }
     }
     startMoveQueue(m_batchPlans);
@@ -2957,7 +2955,57 @@ void MainWindow::showRecovery()
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
     auto *rollback = buttons->addButton(QStringLiteral("Roll back selected"),
                                          QDialogButtonBox::ActionRole);
+    auto *viewLog = buttons->addButton(QStringLiteral("View log"),
+                                       QDialogButtonBox::ActionRole);
+    auto *openFolder = buttons->addButton(QStringLiteral("Open folder"),
+                                          QDialogButtonBox::ActionRole);
+    auto *forget = buttons->addButton(QStringLiteral("Forget"),
+                                      QDialogButtonBox::ActionRole);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    const auto selectedOperation = [&]() -> QJsonObject {
+        const int row = table->currentRow();
+        return (row >= 0 && row < operations.size()) ? operations.at(row) : QJsonObject{};
+    };
+    connect(viewLog, &QPushButton::clicked, &dialog, [&]() {
+        const QJsonObject operation = selectedOperation();
+        if (operation.isEmpty()) {
+            QMessageBox::information(&dialog, QStringLiteral("Recovery"),
+                                     QStringLiteral("Select an operation first."));
+            return;
+        }
+        QDesktopServices::openUrl(QUrl::fromLocalFile(
+            slm::JournalStore::logPath(operation.value(QStringLiteral("opId")).toString())));
+    });
+    connect(openFolder, &QPushButton::clicked, &dialog, [&]() {
+        const QJsonObject operation = selectedOperation();
+        if (operation.isEmpty()) {
+            QMessageBox::information(&dialog, QStringLiteral("Recovery"),
+                                     QStringLiteral("Select an operation first."));
+            return;
+        }
+        QDesktopServices::openUrl(QUrl::fromLocalFile(slm::JournalStore::operationDir(
+            operation.value(QStringLiteral("opId")).toString())));
+    });
+    connect(forget, &QPushButton::clicked, &dialog, [&]() {
+        const QJsonObject operation = selectedOperation();
+        if (operation.isEmpty()) {
+            QMessageBox::information(&dialog, QStringLiteral("Recovery"),
+                                     QStringLiteral("Select an operation first."));
+            return;
+        }
+        const QString opId = operation.value(QStringLiteral("opId")).toString();
+        if (QMessageBox::question(&dialog, QStringLiteral("Forget operation"),
+                                  QStringLiteral("Remove the journal and log for this operation? "
+                                                 "This does not delete any game files."))
+            != QMessageBox::Yes)
+            return;
+        QString error;
+        if (!slm::JournalStore::removeOperation(opId, &error)) {
+            QMessageBox::critical(&dialog, QStringLiteral("Recovery"), error);
+            return;
+        }
+        dialog.accept();
+    });
     connect(rollback, &QPushButton::clicked, &dialog, [&]() {
         const int row = table->currentRow();
         if (row < 0 || row >= operations.size()) {

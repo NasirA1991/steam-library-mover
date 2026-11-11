@@ -62,6 +62,8 @@ void VdfTest::parseInvalid()
     QCOMPARE(offset, 13);
     QVERIFY(!VdfDocument::parse("\"root\" }", &error, &offset).has_value());
     QVERIFY(!VdfDocument::parse("", &error, &offset).has_value());
+    QVERIFY(!VdfDocument::parse("\"root\" { \"a\" \"unterminated\"", &error, &offset).has_value());
+    QVERIFY(!VdfDocument::parse("\"root\" { \"a\" \"escaped\\\"", &error, &offset).has_value());
 }
 
 void VdfTest::roundTrip()

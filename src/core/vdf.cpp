@@ -89,10 +89,13 @@ private:
         }
         ++m_pos;
         QByteArray value;
+        bool closed = false;
         while (!atEnd()) {
             const char c = m_data.at(m_pos++);
-            if (c == '"')
+            if (c == '"') {
+                closed = true;
                 break;
+            }
             if (c != '\\') {
                 value.append(c);
                 continue;
@@ -139,6 +142,10 @@ private:
             }
         }
         if (m_pos > m_data.size() || (m_pos == m_data.size() && m_data.at(m_pos - 1) != '"')) {
+            fail(QStringLiteral("Unterminated quoted string"));
+            return false;
+        }
+        if (!closed) {
             fail(QStringLiteral("Unterminated quoted string"));
             return false;
         }

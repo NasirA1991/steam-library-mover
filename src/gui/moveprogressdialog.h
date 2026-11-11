@@ -58,6 +58,8 @@ private:
     QProgressBar *m_progress = nullptr;
     QProgressBar *m_queueProgress = nullptr;
     QElapsedTimer m_timer;
+    quint64 m_lastBytes = 0;
+    quint64 m_speedBaseBytes = 0;
     QPushButton *m_pauseButton = nullptr;
     QPushButton *m_cancelButton = nullptr;
 };

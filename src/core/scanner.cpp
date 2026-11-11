@@ -215,7 +215,7 @@ bool looksLikeSystemComponent(const AppManifest &manifest)
         return true;
     const QString name = manifest.name.toLower();
     const QString dir = manifest.installDir.toLower();
-    if (name.startsWith(QStringLiteral("proton")) || dir.startsWith(QStringLiteral("proton")))
+    if (name == QStringLiteral("proton") || dir == QStringLiteral("proton"))
         return true;
     if (name.contains(QStringLiteral("steam linux runtime"))
         || dir.contains(QStringLiteral("steamlinuxruntime")))

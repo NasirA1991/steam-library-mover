@@ -367,10 +367,14 @@ void MoveProgressDialog::setProgress(const slm::MoveProgress &progress)
     m_detail->setText(progress.currentFile.isEmpty()
                           ? QStringLiteral("Working…")
                           : QStringLiteral("Current file: %1").arg(progress.currentFile));
+    m_lastBytes = progress.bytesDone;
     if (m_timer.isValid() && progress.bytesDone > 0) {
         const qint64 elapsedMs = qMax<qint64>(1, m_timer.elapsed());
         const double seconds = elapsedMs / 1000.0;
-        const double speed = progress.bytesDone / seconds;
+        if (progress.bytesDone < m_speedBaseBytes)
+            m_speedBaseBytes = 0;
+        const quint64 deltaBytes = progress.bytesDone - m_speedBaseBytes;
+        const double speed = deltaBytes / seconds;
         m_speed->setText(QStringLiteral("%1/s").arg(
             slm::formatBytes(static_cast<quint64>(speed))));
         m_elapsed->setText(durationText(elapsedMs / 1000));
@@ -443,6 +447,7 @@ void MoveProgressDialog::setPaused(bool paused)
         m_speed->setText(QStringLiteral("—"));
         m_remaining->setText(QStringLiteral("—"));
     } else {
+        m_speedBaseBytes = m_lastBytes;
         m_timer.restart();
     }
 }

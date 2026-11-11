@@ -153,6 +153,17 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
         return result;
     }
     QString stateError;
+    {
+        MountTable live = MountTable::load(&stateError);
+        if (!live.isValid()) {
+            result.error = QStringLiteral("Cannot inspect current mounts: %1").arg(stateError);
+            return result;
+        }
+        if (!MovePlanner::revalidateMountState(plan, live, &stateError)) {
+            result.error = QStringLiteral("Preflight failed: %1").arg(stateError);
+            return result;
+        }
+    }
     if (!JournalStore::ensure(&stateError)) {
         result.error = stateError;
         return result;
@@ -372,6 +383,13 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
     if (cancelled && cancelled())
         return cancelMove();
 
+    {
+        MountTable live = MountTable::load(&stateError);
+        if (!live.isValid())
+            return fail(QStringLiteral("Cannot inspect current mounts: %1").arg(stateError));
+        if (!MovePlanner::revalidateMountState(plan, live, &stateError))
+            return fail(QStringLiteral("Commit preflight failed: %1").arg(stateError));
+    }
     if (!MovePlanner::revalidate(plan, mounts, &stateError))
         return fail(QStringLiteral("Commit preflight failed: %1").arg(stateError));
 
@@ -405,8 +423,12 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
         QFile::remove(manifestComponent->destination);
         return fail(QStringLiteral("libraryfolders.vdf changed before commit; source was not modified"));
     }
+    const Component *gameComponent = plan.findComponent(ComponentKind::Game);
+    const quint64 installedBytes = gameComponent && gameComponent->bytes > 0
+        ? gameComponent->bytes
+        : plan.game.sizeOnDisk;
     if (!libraryFile.moveApp(plan.game.appId, plan.sourceLibraryPath, plan.destLibraryPath,
-                             plan.game.sizeOnDisk, &stateError)) {
+                             installedBytes, &stateError)) {
         QFile::remove(manifestComponent->destination);
         return fail(QStringLiteral("Cannot update library database: %1").arg(stateError));
     }

@@ -8,6 +8,8 @@
 
 namespace slm {
 
+bool hasWindowsFilesystemWarning(const MovePlan &plan);
+
 class MovePlanner
 {
 public:
@@ -17,6 +19,8 @@ public:
                          const QMap<QString, quint64> &reservedBytes = {});
 
     static bool revalidate(const MovePlan &plan, const MountTable &mounts, QString *error = nullptr);
+    static bool revalidateMountState(const MovePlan &plan, const MountTable &mounts,
+                                     QString *error = nullptr);
     static bool refreshVdfSnapshot(MovePlan &plan, QString *error = nullptr);
 
     static QStringList processPrefixPaths(const SteamScan &scan, const Game &game,

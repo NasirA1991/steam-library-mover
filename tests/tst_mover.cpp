@@ -21,6 +21,8 @@
 #include <QtTest>
 
 #include <unistd.h>
+#include <sys/stat.h>
+#include <QFile>
 
 using namespace slm;
 
@@ -45,6 +47,7 @@ private slots:
     void cancellationInterruptsVerification();
     void ntfsInvalidNameBlocks();
     void ntfsAcknowledged();
+    void unsupportedFileTypeBlocks();
 };
 
 void MoverTest::initTestCase()
@@ -591,6 +594,28 @@ void MoverTest::ntfsInvalidNameBlocks()
     QVERIFY(found);
 }
 
+void MoverTest::unsupportedFileTypeBlocks()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    qputenv("SLM_STATE_DIR", (temp.path() + QStringLiteral("/state")).toUtf8());
+    const QString steamRoot = testutil::makeFixtureSteam(temp);
+    const QString sourceLibrary = temp.path() + QStringLiteral("/libraryA");
+    const QString destLibrary = temp.path() + QStringLiteral("/libraryB");
+    const QString fifo = sourceLibrary + QStringLiteral("/steamapps/common/Test Game/pipe");
+    QCOMPARE(::mkfifo(QFile::encodeName(fifo).constData(), 0600), 0);
+    const MountTable mounts = MountTable::fromMounts({testutil::makeMount(temp.path())});
+    QString error;
+    SteamScan scan = scanSteam({steamRoot, InstallKind::Native}, mounts, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    MovePlan plan = MovePlanner::plan(scan, 12345, destLibrary, MoveOptions{}, mounts, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QVERIFY(plan.hasBlocker());
+    QVERIFY(std::any_of(plan.issues.cbegin(), plan.issues.cend(), [](const Issue &issue) {
+        return issue.code == QStringLiteral("unsupported-file-type");
+    }));
+}
+
 void MoverTest::ntfsAcknowledged()
 {
     QTemporaryDir temp;
@@ -616,6 +641,7 @@ void MoverTest::ntfsAcknowledged()
             ack = true;
     }
     QVERIFY(ack);
+    QVERIFY(hasWindowsFilesystemWarning(unacknowledged));
 
     options.allowNtfsNative = true;
     const MovePlan acknowledged = MovePlanner::plan(scan, 12345, destLibrary, options, mounts, &error);

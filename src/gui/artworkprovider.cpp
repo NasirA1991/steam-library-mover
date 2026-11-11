@@ -14,6 +14,7 @@
 namespace {
 
 constexpr int kMaxConcurrent = 4;
+constexpr qint64 kMaxArtworkBytes = 5 * 1024 * 1024;
 
 QString defaultCacheDir()
 {
@@ -124,6 +125,10 @@ void ArtworkProvider::fetch(const Pending &pending)
     QNetworkReply *reply = m_network->get(request);
     m_replies.insert(reply, pending);
     ++m_active;
+    connect(reply, &QNetworkReply::downloadProgress, this, [reply](qint64 received, qint64 total) {
+        if (received > kMaxArtworkBytes || total > kMaxArtworkBytes)
+            reply->abort();
+    });
     connect(reply, &QNetworkReply::finished, this, [this, reply]() { finishReply(reply); });
 }
 
@@ -133,7 +138,10 @@ void ArtworkProvider::finishReply(QNetworkReply *reply)
     --m_active;
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QByteArray data = reply->readAll();
-    const bool ok = reply->error() == QNetworkReply::NoError && status == 200 && !data.isEmpty();
+    const bool jpeg = data.startsWith("\xFF\xD8\xFF");
+    const bool png = data.startsWith("\x89PNG\r\n\x1a\n");
+    const bool ok = reply->error() == QNetworkReply::NoError && status == 200
+        && data.size() > 0 && data.size() <= kMaxArtworkBytes && (jpeg || png);
     reply->deleteLater();
 
     if (!m_enabled) {
