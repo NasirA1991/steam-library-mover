@@ -1787,96 +1787,111 @@ void MainWindow::showBatchReview()
     if (m_batchPlans.isEmpty())
         return;
 
-    bool anyBlocker = false;
-    bool ntfsWarning = false;
-    quint64 totalBytes = 0;
-    quint64 payloadBytes = 0;
-    QStringList sources;
-    QStringList issueText;
-    QStringList seen;
-    QVector<slm::Issue> blockers;
-    QSet<QString> blockerSeen;
-    for (const slm::MovePlan &plan : m_batchPlans) {
-        ntfsWarning = ntfsWarning || slm::hasWindowsFilesystemWarning(plan);
-        totalBytes += plan.totalBytes;
-        payloadBytes += plan.game.sizeOnDisk;
-        const slm::Library *sourceLibrary = libraryFor(plan.game.libraryPath);
-        const QString sourceName = sourceLibrary ? ui::driveDisplayName(*sourceLibrary)
-                                                 : plan.game.libraryPath;
-        if (!sources.contains(sourceName))
-            sources.append(sourceName);
-        for (const slm::Issue &issue : plan.issues) {
-            const QString key = QStringLiteral("%1|%2|%3")
-                                    .arg(static_cast<int>(issue.severity))
-                                    .arg(issue.code, issue.detail);
-            if (seen.contains(key))
-                continue;
-            seen.append(key);
-            if (issue.isBlocker() && issue.code != QStringLiteral("windows-filesystem-ack")) {
-                anyBlocker = true;
-                if (!blockerSeen.contains(key)) {
-                    blockerSeen.insert(key);
-                    blockers.append(issue);
-                }
-            }
-            issueText << QStringLiteral("%1 — %2: %3%4")
-                             .arg(plan.game.name,
-                                  issue.isBlocker() ? QStringLiteral("BLOCKER")
-                                                    : QStringLiteral("Warning"),
-                                  issue.message,
-                                  issue.detail.isEmpty()
-                                      ? QString()
-                                      : QStringLiteral(" (%1)").arg(issue.detail));
-        }
-    }
-
-    const auto blockerRank = [](const slm::Issue &issue) {
-        if (issue.code.startsWith(QStringLiteral("ntfs-case-collision")))
-            return 0;
-        if (issue.code == QStringLiteral("source-readonly")
-            || issue.code == QStringLiteral("destination-readonly"))
-            return 1;
-        if (issue.code == QStringLiteral("source-not-writable")
-            || issue.code == QStringLiteral("destination-not-writable"))
-            return 2;
-        return 3;
-    };
-    std::stable_sort(blockers.begin(), blockers.end(), [&](const slm::Issue &a, const slm::Issue &b) {
-        return blockerRank(a) < blockerRank(b);
-    });
-    bool hasCaseCollision = false;
-    bool hasReadOnly = false;
-    for (const slm::Issue &issue : blockers) {
-        if (issue.code.startsWith(QStringLiteral("ntfs-case-collision")))
-            hasCaseCollision = true;
-        if (issue.code == QStringLiteral("source-readonly")
-            || issue.code == QStringLiteral("destination-readonly")
-            || issue.code == QStringLiteral("source-not-writable")
-            || issue.code == QStringLiteral("destination-not-writable")) {
-            hasReadOnly = true;
-        }
-    }
-    QStringList guidance;
-    if (hasCaseCollision) {
-        guidance << QStringLiteral(
-            "NTFS cannot store two names that differ only by case. Move to a case-sensitive "
-            "Linux filesystem (Btrfs/ext4/XFS), or back up and resolve the conflicting source "
-            "entry before retrying.");
-    }
-    if (hasReadOnly) {
-        guidance << QStringLiteral(
-            "A source or destination library is mounted read-only. Remount it read-write with "
-            "the correct uid/gid before moving.");
-    }
-    if (guidance.isEmpty() && anyBlocker) {
-        guidance << QStringLiteral("Review the blocker details below. No files have been changed.");
-    }
-
     const slm::Library *destLibrary = libraryFor(m_batchDestination);
     const QString destinationName = destLibrary ? ui::driveDisplayName(*destLibrary)
                                                  : m_batchDestination;
     const quint64 destinationFree = destLibrary ? destLibrary->mount.freeBytes : 0;
-    const quint64 destinationAfter = destinationFree > totalBytes ? destinationFree - totalBytes : 0;
+
+    struct ReviewSummary
+    {
+        quint64 totalBytes = 0;
+        quint64 payloadBytes = 0;
+        int gameCount = 0;
+        bool anyBlocker = false;
+        bool ntfsWarning = false;
+        QStringList sources;
+        QStringList issueText;
+        QVector<slm::Issue> blockers;
+        QStringList guidance;
+    };
+
+    const auto buildSummary = [&](const QVector<slm::MovePlan> &plans) {
+        ReviewSummary result;
+        result.gameCount = plans.size();
+        QSet<QString> issueSeen;
+        QSet<QString> blockerSeen;
+        for (const slm::MovePlan &plan : plans) {
+            result.ntfsWarning = result.ntfsWarning || slm::hasWindowsFilesystemWarning(plan);
+            result.totalBytes += plan.totalBytes;
+            result.payloadBytes += plan.game.sizeOnDisk;
+            const slm::Library *sourceLibrary = libraryFor(plan.game.libraryPath);
+            const QString sourceName = sourceLibrary ? ui::driveDisplayName(*sourceLibrary)
+                                                     : plan.game.libraryPath;
+            if (!result.sources.contains(sourceName))
+                result.sources.append(sourceName);
+            for (const slm::Issue &issue : plan.issues) {
+                const QString key = QStringLiteral("%1|%2|%3")
+                                        .arg(static_cast<int>(issue.severity))
+                                        .arg(issue.code, issue.detail);
+                if (issueSeen.contains(key))
+                    continue;
+                issueSeen.insert(key);
+                if (issue.isBlocker() && issue.code != QStringLiteral("windows-filesystem-ack")) {
+                    result.anyBlocker = true;
+                    if (!blockerSeen.contains(key)) {
+                        blockerSeen.insert(key);
+                        result.blockers.append(issue);
+                    }
+                }
+                result.issueText << QStringLiteral("%1 — %2: %3%4")
+                                        .arg(plan.game.name,
+                                             issue.isBlocker() ? QStringLiteral("BLOCKER")
+                                                               : QStringLiteral("Warning"),
+                                             issue.message,
+                                             issue.detail.isEmpty()
+                                                 ? QString()
+                                                 : QStringLiteral(" (%1)").arg(issue.detail));
+            }
+        }
+
+        const auto blockerRank = [](const slm::Issue &issue) {
+            if (issue.code.startsWith(QStringLiteral("ntfs-case-collision")))
+                return 0;
+            if (issue.code == QStringLiteral("source-readonly")
+                || issue.code == QStringLiteral("destination-readonly"))
+                return 1;
+            if (issue.code == QStringLiteral("source-not-writable")
+                || issue.code == QStringLiteral("destination-not-writable"))
+                return 2;
+            return 3;
+        };
+        std::stable_sort(result.blockers.begin(), result.blockers.end(),
+                         [&](const slm::Issue &a, const slm::Issue &b) {
+                             return blockerRank(a) < blockerRank(b);
+                         });
+        bool hasCaseCollision = false;
+        bool hasReadOnly = false;
+        for (const slm::Issue &issue : result.blockers) {
+            if (issue.code.startsWith(QStringLiteral("ntfs-case-collision")))
+                hasCaseCollision = true;
+            if (issue.code == QStringLiteral("source-readonly")
+                || issue.code == QStringLiteral("destination-readonly")
+                || issue.code == QStringLiteral("source-not-writable")
+                || issue.code == QStringLiteral("destination-not-writable")) {
+                hasReadOnly = true;
+            }
+        }
+        if (hasCaseCollision) {
+            result.guidance << QStringLiteral(
+                "NTFS cannot store two names that differ only by case. Move to a case-sensitive "
+                "Linux filesystem (Btrfs/ext4/XFS), or back up and resolve the conflicting source "
+                "entry before retrying.");
+        }
+        if (hasReadOnly) {
+            result.guidance << QStringLiteral(
+                "A source or destination library is mounted read-only. Remount it read-write with "
+                "the correct uid/gid before moving.");
+        }
+        if (result.guidance.isEmpty() && result.anyBlocker) {
+            result.guidance
+                << QStringLiteral("Review the blocker details below. No files have been changed.");
+        }
+        return result;
+    };
+
+    // Kept current as rows are unchecked, so the footer and preflight use exactly
+    // the games that will be moved.
+    ReviewSummary summary = buildSummary(m_batchPlans);
 
     // Never rely on Breeze's Mid/Disabled colors for text; they can collapse into
     // the dark window background. Use an explicit, theme-aware muted color instead.
@@ -1907,15 +1922,7 @@ void MainWindow::showBatchReview()
     // smaller than its content's natural size on short screens.
     root->setSizeConstraint(QLayout::SetNoConstraint);
 
-    auto *heading = new QLabel(
-        QStringLiteral("<b style='font-size:16px'>Review transfer</b><br>"
-                       "<span style='color:%1'>Move %2 game%3 · %4 payload</span>")
-            .arg(muted)
-            .arg(m_batchPlans.size())
-            .arg(m_batchPlans.size() == 1 ? QString() : QStringLiteral("s"))
-            .arg(payloadBytes == 0 ? QStringLiteral("unknown size")
-                                   : slm::formatBytes(payloadBytes)),
-        &dialog);
+    auto *heading = new QLabel(&dialog);
     heading->setTextFormat(Qt::RichText);
     root->addWidget(heading);
 
@@ -1931,72 +1938,50 @@ void MainWindow::showBatchReview()
     scroll->setWidget(body);
     root->addWidget(scroll, 1);
 
-    if (anyBlocker) {
-        auto *blocked = new QFrame(body);
-        blocked->setObjectName(QStringLiteral("blockedBanner"));
-        blocked->setStyleSheet(
-            QStringLiteral("QFrame#blockedBanner { background: %1; border: 1px solid %2; "
-                           "border-radius: 5px; }")
-                .arg(dangerBg, danger));
-        auto *blockedLayout = new QVBoxLayout(blocked);
-        blockedLayout->setContentsMargins(12, 8, 12, 8);
-        blockedLayout->setSpacing(3);
-        auto *blockedTitle = new QLabel(
-            QStringLiteral("<b>Move blocked by %1 blocker%2</b>")
-                .arg(blockers.size())
-                .arg(blockers.size() == 1 ? QString() : QStringLiteral("s")),
-            blocked);
-        blockedTitle->setTextFormat(Qt::RichText);
-        blockedTitle->setStyleSheet(QStringLiteral("color: %1;").arg(danger));
-        blockedLayout->addWidget(blockedTitle);
-        QStringList lines;
-        const int shown = qMin(3, blockers.size());
-        for (int i = 0; i < shown; ++i) {
-            const slm::Issue &issue = blockers.at(i);
-            QString line = QStringLiteral("• <b>%1</b>").arg(issue.message.toHtmlEscaped());
-            if (!issue.detail.isEmpty())
-                line += QStringLiteral("<br><span style='color:%1'>%2</span>")
-                            .arg(muted, issue.detail.toHtmlEscaped());
-            lines << line;
-        }
-        if (blockers.size() > shown) {
-            lines << QStringLiteral("• …and %1 more (see findings below)")
-                          .arg(blockers.size() - shown);
-        }
-        auto *blockedReasons = new QLabel(lines.join(QStringLiteral("<br>")), blocked);
-        blockedReasons->setTextFormat(Qt::RichText);
-        blockedReasons->setWordWrap(true);
-        blockedReasons->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        blockedReasons->setStyleSheet(QStringLiteral("color: %1;").arg(muted));
-        blockedLayout->addWidget(blockedReasons);
-        if (!guidance.isEmpty()) {
-            auto *blockedHelp = new QLabel(guidance.join(QLatin1Char(' ')), blocked);
-            blockedHelp->setWordWrap(true);
-            blockedHelp->setStyleSheet(QStringLiteral("color: %1; font-size: 10px;").arg(muted));
-            blockedLayout->addWidget(blockedHelp);
-        }
-        layout->addWidget(blocked);
-    }
-    if (ntfsWarning) {
-        auto *ntfsNotice = new QLabel(
-            QStringLiteral("NTFS destination: tick the Windows-filesystem acknowledgement at "
-                           "the bottom of this review before Start can be enabled."),
-            body);
-        ntfsNotice->setWordWrap(true);
-        ntfsNotice->setStyleSheet(
-            QStringLiteral("color: %1; background: %2; border: 1px solid %3; "
-                           "border-radius: 4px; padding: 6px 8px; font-size: 10px;")
-                .arg(ui::isDarkTheme() ? QStringLiteral("#f2c96d")
-                                       : QStringLiteral("#7a5200"),
-                     ui::isDarkTheme() ? QStringLiteral("#332b1b")
-                                       : QStringLiteral("#fff7e0"),
-                     ui::isDarkTheme() ? QStringLiteral("#6b5625")
-                                       : QStringLiteral("#e3c26a")));
-        layout->addWidget(ntfsNotice);
-    }
+    auto *blocked = new QFrame(body);
+    blocked->setObjectName(QStringLiteral("blockedBanner"));
+    blocked->setStyleSheet(
+        QStringLiteral("QFrame#blockedBanner { background: %1; border: 1px solid %2; "
+                       "border-radius: 5px; }")
+            .arg(dangerBg, danger));
+    auto *blockedLayout = new QVBoxLayout(blocked);
+    blockedLayout->setContentsMargins(12, 8, 12, 8);
+    blockedLayout->setSpacing(3);
+    auto *blockedTitle = new QLabel(blocked);
+    blockedTitle->setTextFormat(Qt::RichText);
+    blockedTitle->setStyleSheet(QStringLiteral("color: %1;").arg(danger));
+    blockedLayout->addWidget(blockedTitle);
+    auto *blockedReasons = new QLabel(blocked);
+    blockedReasons->setTextFormat(Qt::RichText);
+    blockedReasons->setWordWrap(true);
+    blockedReasons->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    blockedReasons->setStyleSheet(QStringLiteral("color: %1;").arg(muted));
+    blockedLayout->addWidget(blockedReasons);
+    auto *blockedHelp = new QLabel(blocked);
+    blockedHelp->setWordWrap(true);
+    blockedHelp->setStyleSheet(QStringLiteral("color: %1; font-size: 10px;").arg(muted));
+    blockedLayout->addWidget(blockedHelp);
+    layout->addWidget(blocked);
+
+    auto *ntfsNotice = new QLabel(
+        QStringLiteral("NTFS destination: tick the Windows-filesystem acknowledgement at "
+                       "the bottom of this review before Start can be enabled."),
+        body);
+    ntfsNotice->setWordWrap(true);
+    ntfsNotice->setStyleSheet(
+        QStringLiteral("color: %1; background: %2; border: 1px solid %3; "
+                       "border-radius: 4px; padding: 6px 8px; font-size: 10px;")
+            .arg(ui::isDarkTheme() ? QStringLiteral("#f2c96d")
+                                   : QStringLiteral("#7a5200"),
+                 ui::isDarkTheme() ? QStringLiteral("#332b1b")
+                                   : QStringLiteral("#fff7e0"),
+                 ui::isDarkTheme() ? QStringLiteral("#6b5625")
+                                   : QStringLiteral("#e3c26a")));
+    layout->addWidget(ntfsNotice);
 
     const auto makeCard = [&](const QString &kicker, const QString &title,
-                              const QString &meta) {
+                              const QString &meta, QLabel **kickerOut = nullptr,
+                              QLabel **titleOut = nullptr, QLabel **metaOut = nullptr) {
         auto *card = new QFrame(body);
         card->setObjectName(QStringLiteral("reviewCard"));
         card->setStyleSheet(
@@ -2018,53 +2003,73 @@ void MainWindow::showBatchReview()
         cardLayout->addWidget(kickerLabel);
         cardLayout->addWidget(titleLabel);
         cardLayout->addWidget(metaLabel);
+        if (kickerOut)
+            *kickerOut = kickerLabel;
+        if (titleOut)
+            *titleOut = titleLabel;
+        if (metaOut)
+            *metaOut = metaLabel;
         return card;
     };
 
     auto *route = new QHBoxLayout();
     route->setSpacing(8);
+    QLabel *sourceKicker = nullptr;
+    QLabel *sourceTitle = nullptr;
     route->addWidget(makeCard(QStringLiteral("FROM · %1 LIBRAR%2")
-                                  .arg(sources.size())
-                                  .arg(sources.size() == 1 ? QStringLiteral("Y") : QStringLiteral("IES")),
-                              sources.join(QStringLiteral(" + ")),
-                              QStringLiteral("Verified source libraries")),
+                                  .arg(summary.sources.size())
+                                  .arg(summary.sources.size() == 1 ? QStringLiteral("Y")
+                                                                   : QStringLiteral("IES")),
+                              summary.sources.join(QStringLiteral(" + ")),
+                              QStringLiteral("Verified source libraries"), &sourceKicker,
+                              &sourceTitle),
                      1);
     auto *arrow = new QLabel(QStringLiteral("→"), body);
     arrow->setAlignment(Qt::AlignCenter);
     arrow->setStyleSheet(QStringLiteral("font-size: 18px; color: %1;").arg(muted));
     route->addWidget(arrow);
-    route->addWidget(makeCard(QStringLiteral("TO"),
-                              destinationName,
+    QLabel *destinationMeta = nullptr;
+    route->addWidget(makeCard(QStringLiteral("TO"), destinationName,
                               QStringLiteral("%1 free of %2 · ~%3 after")
                                   .arg(slm::formatBytes(destinationFree),
-                                       slm::formatBytes(destLibrary ? destLibrary->mount.totalBytes : 0),
-                                       slm::formatBytes(destinationAfter))),
+                                       slm::formatBytes(destLibrary ? destLibrary->mount.totalBytes
+                                                                    : 0),
+                                       slm::formatBytes(destinationFree)),
+                              nullptr, nullptr, &destinationMeta),
                      1);
     layout->addLayout(route);
 
     auto *table = new QTableWidget(body);
-    table->setColumnCount(2);
-    table->setHorizontalHeaderLabels({QStringLiteral("Game"), QStringLiteral("Payload")});
+    table->setColumnCount(3);
+    table->setHorizontalHeaderLabels(
+        {QStringLiteral("Move"), QStringLiteral("Game"), QStringLiteral("Payload")});
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setSelectionMode(QAbstractItemView::NoSelection);
     table->setFocusPolicy(Qt::NoFocus);
     table->verticalHeader()->setVisible(false);
     table->verticalHeader()->setDefaultSectionSize(32);
     table->horizontalHeader()->setStretchLastSection(false);
-    table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     table->setRowCount(m_batchPlans.size());
     table->setIconSize(QSize(22, 30));
+    QVector<QCheckBox *> rowChecks;
     for (int i = 0; i < m_batchPlans.size(); ++i) {
         const slm::Game &game = m_batchPlans.at(i).game;
+        auto *check = new QCheckBox(table);
+        check->setChecked(true);
+        check->setToolTip(QStringLiteral("Include %1 in this transfer").arg(game.name));
+        table->setCellWidget(i, 0, check);
+        rowChecks.append(check);
         auto *nameItem = new QTableWidgetItem(game.name);
         if (!game.artworkPath.isEmpty()) {
             const QPixmap pixmap(game.artworkPath);
             if (!pixmap.isNull())
                 nameItem->setIcon(QIcon(pixmap));
         }
-        table->setItem(i, 0, nameItem);
-        table->setItem(i, 1, new QTableWidgetItem(
+        table->setItem(i, 1, nameItem);
+        table->setItem(i, 2, new QTableWidgetItem(
             game.sizeOnDisk == 0 ? QStringLiteral("unknown")
                                  : slm::formatBytes(game.sizeOnDisk)));
     }
@@ -2073,13 +2078,7 @@ void MainWindow::showBatchReview()
     table->setFixedHeight(tableHeader + visibleRows * 32 + 4);
     layout->addWidget(table);
 
-    auto *total = new QLabel(
-        QStringLiteral("<span style='color:%1'>Total payload</span> &nbsp; "
-                       "<b>%2</b>")
-            .arg(muted,
-                 payloadBytes == 0 ? QStringLiteral("unknown")
-                                   : slm::formatBytes(payloadBytes)),
-        body);
+    auto *total = new QLabel(body);
     total->setTextFormat(Qt::RichText);
     layout->addWidget(total);
 
@@ -2092,7 +2091,8 @@ void MainWindow::showBatchReview()
     auto *spaceLayout = new QHBoxLayout(spaceBox);
     spaceLayout->setContentsMargins(12, 8, 12, 8);
     const auto addSpace = [&](const QString &label, const QString &value,
-                              const QString &note) {
+                              const QString &note, QLabel **valueOut = nullptr,
+                              QLabel **noteOut = nullptr) {
         auto *box = new QVBoxLayout();
         auto *lab = new QLabel(label, spaceBox);
         lab->setStyleSheet(
@@ -2106,14 +2106,23 @@ void MainWindow::showBatchReview()
         box->addWidget(val);
         box->addWidget(fine);
         spaceLayout->addLayout(box, 1);
+        if (valueOut)
+            *valueOut = val;
+        if (noteOut)
+            *noteOut = fine;
     };
     addSpace(QStringLiteral("DESTINATION NOW"), slm::formatBytes(destinationFree),
              destinationName);
-    addSpace(QStringLiteral("NEEDED DURING COPY"), slm::formatBytes(totalBytes),
-             QStringLiteral("payload + prefix/shadercache"));
+    QLabel *spaceNeeded = nullptr;
+    QLabel *spaceNeededNote = nullptr;
+    QLabel *spaceAfter = nullptr;
+    QLabel *spaceAfterNote = nullptr;
+    addSpace(QStringLiteral("NEEDED DURING COPY"), slm::formatBytes(summary.totalBytes),
+             QStringLiteral("payload + prefix/shadercache"), &spaceNeeded, &spaceNeededNote);
     addSpace(QStringLiteral("AFTER CLEANUP"),
-             QStringLiteral("~%1 free").arg(slm::formatBytes(destinationAfter)),
-             QStringLiteral("source recovers ~%1").arg(slm::formatBytes(totalBytes)));
+             QStringLiteral("~%1 free").arg(slm::formatBytes(destinationFree)),
+             QStringLiteral("source recovers ~%1").arg(slm::formatBytes(summary.totalBytes)),
+             &spaceAfter, &spaceAfterNote);
     layout->addWidget(spaceBox);
 
     auto *method = new QLabel(
@@ -2141,16 +2150,13 @@ void MainWindow::showBatchReview()
     vdfNote->setStyleSheet(QStringLiteral("color: %1; font-size: 10px;").arg(muted));
     layout->addWidget(vdfNote);
 
-    if (!issueText.isEmpty()) {
-        auto *issues = new QTextBrowser(body);
-        issues->setMaximumHeight(92);
-        issues->setStyleSheet(
-            QStringLiteral("QTextBrowser { background: palette(base); border: 1px solid %1; "
-                           "border-radius: 4px; }")
-                .arg(border));
-        issues->setPlainText(issueText.join(QLatin1Char('\n')));
-        layout->addWidget(issues);
-    }
+    auto *issues = new QTextBrowser(body);
+    issues->setMaximumHeight(92);
+    issues->setStyleSheet(
+        QStringLiteral("QTextBrowser { background: palette(base); border: 1px solid %1; "
+                       "border-radius: 4px; }")
+            .arg(border));
+    layout->addWidget(issues);
 
     auto *fullVerify = new QCheckBox(
         QStringLiteral("Full SHA-256 verification (default; uncheck for quick mode)"), body);
@@ -2177,14 +2183,11 @@ void MainWindow::showBatchReview()
         QStringLiteral("Keep a source backup (hidden .slm-backup-* folders)"), body);
     keepBackup->setChecked(m_batchOptions.keepSourceBackup);
     layout->addWidget(keepBackup);
-    QCheckBox *ack = nullptr;
-    if (ntfsWarning) {
-        ack = new QCheckBox(
-            QStringLiteral("I understand the destination is a Windows-compatible filesystem; "
-                           "native Linux games may not run there. (Required for this destination.)"),
-            body);
-        layout->addWidget(ack);
-    }
+    auto *ack = new QCheckBox(
+        QStringLiteral("I understand the destination is a Windows-compatible filesystem; "
+                       "native Linux games may not run there. (Required for this destination.)"),
+        body);
+    layout->addWidget(ack);
 
     auto *footer = new QHBoxLayout();
     auto *reviewNote = new QLabel(QStringLiteral("Review changes nothing until you start."),
@@ -2197,32 +2200,10 @@ void MainWindow::showBatchReview()
     startHint->setStyleSheet(QStringLiteral("color: %1; font-size: 10px;").arg(muted));
     startHint->setVisible(false);
     footer->addWidget(startHint);
-    if (anyBlocker) {
-        auto *why = new QPushButton(QStringLiteral("Why blocked?"), &dialog);
-        why->setAutoDefault(false);
-        why->setObjectName(QStringLiteral("whyBlocked"));
-        connect(why, &QPushButton::clicked, &dialog, [&]() {
-            QString html = QStringLiteral("<b>The move cannot start</b><br><br>");
-            for (const slm::Issue &issue : blockers) {
-                html += QStringLiteral("<b>%1</b><br>").arg(issue.message.toHtmlEscaped());
-                if (!issue.detail.isEmpty())
-                    html += QStringLiteral("%1<br>").arg(issue.detail.toHtmlEscaped());
-                html += QStringLiteral("<br>");
-            }
-            if (!guidance.isEmpty()) {
-                html += QStringLiteral("<b>What to do</b><br>");
-                for (const QString &line : guidance)
-                    html += QStringLiteral("• %1<br>").arg(line.toHtmlEscaped());
-                html += QStringLiteral("<br>");
-            }
-            html += QStringLiteral("No files have been changed.");
-            QMessageBox box(QMessageBox::Warning, QStringLiteral("Why is this blocked?"),
-                            html, QMessageBox::Close, &dialog);
-            box.setTextFormat(Qt::RichText);
-            box.exec();
-        });
-        footer->addWidget(why);
-    }
+    auto *why = new QPushButton(QStringLiteral("Why blocked?"), &dialog);
+    why->setAutoDefault(false);
+    why->setObjectName(QStringLiteral("whyBlocked"));
+    footer->addWidget(why);
     footer->addStretch();
     auto *cancelButton = new QPushButton(QStringLiteral("Cancel"), &dialog);
     auto *preflight = new QPushButton(QStringLiteral("Preflight only"), &dialog);
@@ -2236,11 +2217,23 @@ void MainWindow::showBatchReview()
     footer->addWidget(okButton);
     root->addLayout(footer);
 
-    const auto updateEnabled = [&]() {
-        okButton->setEnabled(!anyBlocker && (!ack || ack->isChecked()));
-        if (anyBlocker) {
+    const auto selectedPlans = [&]() {
+        QVector<slm::MovePlan> plans;
+        for (int i = 0; i < m_batchPlans.size(); ++i) {
+            if (rowChecks.at(i)->isChecked())
+                plans.append(m_batchPlans.at(i));
+        }
+        return plans;
+    };
+
+    const auto updateEnabled = [&](const ReviewSummary &current) {
+        const bool acknowledged = !current.ntfsWarning || ack->isChecked();
+        okButton->setEnabled(!current.anyBlocker && current.gameCount > 0 && acknowledged);
+        if (current.gameCount == 0) {
+            startHint->setText(QStringLiteral("Start is disabled: select at least one game."));
+        } else if (current.anyBlocker) {
             startHint->setText(QStringLiteral("Start is disabled: resolve the blocker above."));
-        } else if (ack && !ack->isChecked()) {
+        } else if (current.ntfsWarning && !ack->isChecked()) {
             startHint->setText(
                 QStringLiteral("Start is disabled: tick the NTFS acknowledgement below."));
         } else {
@@ -2248,23 +2241,134 @@ void MainWindow::showBatchReview()
         }
         startHint->setVisible(!startHint->text().isEmpty());
     };
-    updateEnabled();
+
+    const auto updateReview = [&]() {
+        summary = buildSummary(selectedPlans());
+        heading->setText(
+            QStringLiteral("<b style='font-size:16px'>Review transfer</b><br>"
+                           "<span style='color:%1'>Move %2 game%3 · %4 payload</span>")
+                .arg(muted)
+                .arg(summary.gameCount)
+                .arg(summary.gameCount == 1 ? QString() : QStringLiteral("s"))
+                .arg(summary.payloadBytes == 0 ? QStringLiteral("unknown size")
+                                                : slm::formatBytes(summary.payloadBytes)));
+
+        blocked->setVisible(summary.anyBlocker);
+        if (summary.anyBlocker) {
+            blockedTitle->setText(
+                QStringLiteral("<b>Move blocked by %1 blocker%2</b>")
+                    .arg(summary.blockers.size())
+                    .arg(summary.blockers.size() == 1 ? QString() : QStringLiteral("s")));
+            QStringList lines;
+            const int shown = qMin(3, summary.blockers.size());
+            for (int i = 0; i < shown; ++i) {
+                const slm::Issue &issue = summary.blockers.at(i);
+                QString line = QStringLiteral("• <b>%1</b>").arg(issue.message.toHtmlEscaped());
+                if (!issue.detail.isEmpty())
+                    line += QStringLiteral("<br><span style='color:%1'>%2</span>")
+                                .arg(muted, issue.detail.toHtmlEscaped());
+                lines << line;
+            }
+            if (summary.blockers.size() > shown) {
+                lines << QStringLiteral("• …and %1 more (see findings below)")
+                              .arg(summary.blockers.size() - shown);
+            }
+            blockedReasons->setText(lines.join(QStringLiteral("<br>")));
+            blockedHelp->setText(summary.guidance.join(QLatin1Char(' ')));
+            blockedHelp->setVisible(!summary.guidance.isEmpty());
+        }
+
+        ntfsNotice->setVisible(summary.ntfsWarning);
+        ack->setVisible(summary.ntfsWarning);
+        why->setVisible(summary.anyBlocker);
+        issues->setVisible(!summary.issueText.isEmpty());
+        issues->setPlainText(summary.issueText.join(QLatin1Char('\n')));
+        sourceKicker->setText(
+            QStringLiteral("FROM · %1 LIBRAR%2")
+                .arg(summary.sources.size())
+                .arg(summary.sources.size() == 1 ? QStringLiteral("Y") : QStringLiteral("IES")));
+        sourceTitle->setText(summary.sources.join(QStringLiteral(" + ")));
+        if (destinationMeta) {
+            destinationMeta->setText(
+                QStringLiteral("%1 free of %2 · ~%3 after")
+                    .arg(slm::formatBytes(destinationFree),
+                         slm::formatBytes(destLibrary ? destLibrary->mount.totalBytes : 0),
+                         slm::formatBytes(destinationFree > summary.totalBytes
+                                              ? destinationFree - summary.totalBytes
+                                              : 0)));
+        }
+        total->setText(QStringLiteral("<span style='color:%1'>Total payload</span> &nbsp; "
+                                      "<b>%2</b>")
+                           .arg(muted,
+                                summary.payloadBytes == 0
+                                    ? QStringLiteral("unknown")
+                                    : slm::formatBytes(summary.payloadBytes)));
+        spaceNeeded->setText(slm::formatBytes(summary.totalBytes));
+        spaceNeededNote->setText(QStringLiteral("payload + prefix/shadercache"));
+        const quint64 after = destinationFree > summary.totalBytes
+            ? destinationFree - summary.totalBytes
+            : 0;
+        spaceAfter->setText(QStringLiteral("~%1 free").arg(slm::formatBytes(after)));
+        spaceAfterNote->setText(
+            QStringLiteral("source recovers ~%1").arg(slm::formatBytes(summary.totalBytes)));
+        updateEnabled(summary);
+    };
+
+    connect(ack, &QCheckBox::toggled, &dialog, [&](bool) { updateEnabled(summary); });
+    for (QCheckBox *check : rowChecks) {
+        connect(check, &QCheckBox::toggled, &dialog, [&](bool) { updateReview(); });
+    }
+    connect(why, &QPushButton::clicked, &dialog, [&]() {
+        QString html = QStringLiteral("<b>The move cannot start</b><br><br>");
+        for (const slm::Issue &issue : summary.blockers) {
+            html += QStringLiteral("<b>%1</b><br>").arg(issue.message.toHtmlEscaped());
+            if (!issue.detail.isEmpty())
+                html += QStringLiteral("%1<br>").arg(issue.detail.toHtmlEscaped());
+            html += QStringLiteral("<br>");
+        }
+        if (!summary.guidance.isEmpty()) {
+            html += QStringLiteral("<b>What to do</b><br>");
+            for (const QString &line : summary.guidance)
+                html += QStringLiteral("• %1<br>").arg(line.toHtmlEscaped());
+            html += QStringLiteral("<br>");
+        }
+        html += QStringLiteral("No files have been changed.");
+        QMessageBox box(QMessageBox::Warning, QStringLiteral("Why is this blocked?"), html,
+                        QMessageBox::Close, &dialog);
+        box.setTextFormat(Qt::RichText);
+        box.exec();
+    });
+    updateReview();
+
     connect(cancelButton, &QPushButton::clicked, &dialog, &QDialog::reject);
     connect(okButton, &QPushButton::clicked, &dialog, [&dialog, &okButton]() {
         if (okButton->isEnabled())
             dialog.accept();
     });
-    if (ack)
-        connect(ack, &QCheckBox::toggled, &dialog, [&](bool) { updateEnabled(); });
     connect(preflight, &QPushButton::clicked, &dialog, [&]() {
+        const QVector<slm::MovePlan> plans = selectedPlans();
         QStringList what;
         what << QStringLiteral("%1 game(s), %2 total")
-                    .arg(m_batchPlans.size())
-                    .arg(slm::formatBytes(totalBytes));
+                    .arg(plans.size())
+                    .arg(slm::formatBytes(summary.totalBytes));
         what << QStringLiteral("Destination: %1 (%2 free)")
                     .arg(destinationName, slm::formatBytes(destinationFree));
+        const slm::MountTable mounts = slm::MountTable::load();
+        QStringList changed;
+        for (const slm::MovePlan &plan : plans) {
+            QString checkError;
+            if (!slm::MovePlanner::revalidate(plan, mounts, &checkError))
+                changed << QStringLiteral("%1: %2").arg(plan.game.name, checkError);
+        }
+        if (changed.isEmpty()) {
+            what << QStringLiteral("Fresh re-check passed: paths, manifests, Steam state and free "
+                                   "space are unchanged.");
+        } else {
+            what << QStringLiteral("Fresh re-check found changes:");
+            what += changed;
+        }
         what << QStringLiteral("No files have been changed. This is a preflight-only check.");
-        if (anyBlocker)
+        if (summary.anyBlocker)
             what.prepend(QStringLiteral("Preflight has blockers; Start is disabled."));
         QMessageBox::information(&dialog, QStringLiteral("Preflight only"),
                                  what.join(QLatin1Char('\n')));
@@ -2273,12 +2377,14 @@ void MainWindow::showBatchReview()
     if (dialog.exec() != QDialog::Accepted)
         return;
 
-    if (ack && !ack->isChecked())
-        return; // unreachable through the UI, but never strip an unacknowledged blocker
+    const QVector<slm::MovePlan> plans = selectedPlans();
+    if (plans.isEmpty() || (summary.ntfsWarning && !ack->isChecked()))
+        return;
 
-    for (slm::MovePlan &plan : m_batchPlans) {
+    QVector<slm::MovePlan> accepted = plans;
+    for (slm::MovePlan &plan : accepted) {
         plan.options.fullVerify = fullVerify->isChecked();
-        plan.options.allowNtfsNative = ack != nullptr && ack->isChecked();
+        plan.options.allowNtfsNative = summary.ntfsWarning && ack->isChecked();
         plan.options.keepSourceBackup = keepBackup->isChecked();
         if (plan.options.allowNtfsNative) {
             // The core planner emitted this blocker because the GUI had not yet
@@ -2289,7 +2395,8 @@ void MainWindow::showBatchReview()
             }
         }
     }
-    startMoveQueue(m_batchPlans);
+    m_batchPlans = accepted;
+    startMoveQueue(accepted);
 }
 
 void MainWindow::startMoveQueue(const QVector<slm::MovePlan> &plans)

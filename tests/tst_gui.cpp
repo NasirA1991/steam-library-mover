@@ -23,6 +23,7 @@
 #include <QScrollArea>
 #include <QSettings>
 #include <QTableView>
+#include <QTableWidget>
 #include <QToolButton>
 #include <QTimer>
 #include <QTemporaryDir>
@@ -321,6 +322,8 @@ void GuiTest::batchMoveFlow()
 
     bool reviewAccepted = false;
     bool reviewHasScroll = false;
+    bool reviewToggled = false;
+    bool reviewSelectionWorks = false;
     bool summaryClosed = false;
     QTimer watcher;
     watcher.setInterval(25);
@@ -332,6 +335,25 @@ void GuiTest::batchMoveFlow()
             if (!reviewAccepted && dialog->windowTitle() == QStringLiteral("Review transfer")) {
                 reviewHasScroll = dialog->findChild<QScrollArea *>() != nullptr;
                 auto *start = dialog->findChild<QPushButton *>(QStringLiteral("startTransfer"));
+                if (start && !reviewToggled) {
+                    auto *reviewTable = dialog->findChild<QTableWidget *>();
+                    if (reviewTable && reviewTable->rowCount() >= 2) {
+                        auto *check =
+                            qobject_cast<QCheckBox *>(reviewTable->cellWidget(0, 0));
+                        if (check) {
+                            check->setChecked(false);
+                            QCoreApplication::processEvents();
+                            for (QLabel *label : dialog->findChildren<QLabel *>()) {
+                                if (label->text().contains(QStringLiteral("Move 1 game")))
+                                    reviewSelectionWorks = true;
+                            }
+                            reviewSelectionWorks = reviewSelectionWorks && start->isEnabled();
+                            check->setChecked(true);
+                            QCoreApplication::processEvents();
+                            reviewToggled = true;
+                        }
+                    }
+                }
                 if (start && start->isEnabled()) {
                     start->click();
                     reviewAccepted = true;
@@ -351,6 +373,8 @@ void GuiTest::batchMoveFlow()
     watcher.start();
     QTRY_VERIFY_WITH_TIMEOUT(reviewAccepted, 10000);
     QVERIFY(reviewHasScroll);
+    QVERIFY(reviewToggled);
+    QVERIFY(reviewSelectionWorks);
     QTRY_VERIFY_WITH_TIMEOUT(summaryClosed, 15000);
     watcher.stop();
 

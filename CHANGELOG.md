@@ -18,6 +18,10 @@
   materialized as allocated zero blocks when the filesystem supports them.
 - The library sidebar can be hidden from View → Library sidebar (Ctrl+B), and the minimum window
   size is now 900×560 so the window fits smaller displays.
+- The batch review lets you uncheck individual games before starting; the blocked banner,
+  acknowledgement, payload, free-space figures and Start state all follow the current selection.
+  "Preflight only" now reloads mounts and revalidates the selected plans instead of repeating the
+  stale plan.
 
 ## 0.1.9 — 2026-11-11
 
