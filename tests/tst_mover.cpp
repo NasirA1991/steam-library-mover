@@ -43,6 +43,7 @@ private slots:
     void keepSourceBackup();
     void compatToolMetadata();
     void pauseAndResumeCopy();
+    void resumeRepairsInterruptedVerification();
     void sequentialBatchRefreshesVdf();
     void cancellationInterruptsVerification();
     void ntfsInvalidNameBlocks();
@@ -519,6 +520,73 @@ void MoverTest::cancellationInterruptsVerification()
     QVERIFY(!CopyEngine::verifyTree(source, destination, true, &error,
                                     [&]() { return cancelled.load(std::memory_order_relaxed); }));
     QVERIFY(error.contains(QStringLiteral("Cancelled"), Qt::CaseInsensitive));
+}
+
+void MoverTest::resumeRepairsInterruptedVerification()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    qputenv("SLM_STATE_DIR", (temp.path() + QStringLiteral("/state")).toUtf8());
+    const QString steamRoot = testutil::makeFixtureSteam(temp);
+    const QString sourceLibrary = temp.path() + QStringLiteral("/libraryA");
+    const QString destLibrary = temp.path() + QStringLiteral("/libraryB");
+    const QString destPayload = destLibrary + QStringLiteral("/steamapps/common/Test Game");
+    const QString destFile = destPayload + QStringLiteral("/game.dat");
+    const QByteArray original = testutil::readFile(
+        sourceLibrary + QStringLiteral("/steamapps/common/Test Game/game.dat"));
+    QVERIFY(!original.isEmpty());
+
+    const MountTable mounts = MountTable::fromMounts({testutil::makeMount(temp.path())});
+    QString error;
+    SteamScan scan = scanSteam({steamRoot, InstallKind::Native}, mounts, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    MoveOptions options;
+    options.allowNtfsNative = true;
+    MovePlan plan = MovePlanner::plan(scan, 12345, destLibrary, options, mounts, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QVERIFY(!plan.hasBlocker());
+
+    MoveExecutor executor;
+    bool cancelAtVerify = false;
+    const MoveResult interrupted = executor.execute(
+        plan, mounts,
+        [&](const MoveProgress &progress) {
+            if (progress.phase == Phase::Verifying)
+                cancelAtVerify = true;
+        },
+        [&]() { return cancelAtVerify; });
+    QVERIFY(interrupted.cancelled);
+    QVERIFY(QFileInfo::exists(destFile));
+
+    const QList<QJsonObject> operations = MoveExecutor::unfinishedOperations();
+    QVERIFY(!operations.isEmpty());
+    const QJsonObject journal = operations.first();
+    QVERIFY(journal.value(QStringLiteral("phase")).toString() == phaseName(Phase::Verifying));
+    QVERIFY2(MoveExecutor::canResume(journal, &error), qPrintable(error));
+
+    QJsonObject committed = journal;
+    committed.insert(QStringLiteral("phase"), phaseName(Phase::WritingManifest));
+    QVERIFY(!MoveExecutor::canResume(committed, &error));
+    QVERIFY(error.contains(QStringLiteral("commit")));
+
+    QJsonObject wrongBackup = journal;
+    wrongBackup.insert(QStringLiteral("backupDir"),
+                       slm::JournalStore::backupDir(QStringLiteral("another-operation")));
+    QVERIFY(!MoveExecutor::canResume(wrongBackup, &error));
+    QVERIFY(error.contains(QStringLiteral("backup")));
+
+    // Corrupt one destination file. Resuming must detect this, remove the bad
+    // component, copy it again, and still complete the transaction.
+    QFile corrupted(destFile);
+    QVERIFY(corrupted.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QCOMPARE(corrupted.write(QByteArray(original.size(), 'Z')), original.size());
+    corrupted.close();
+
+    const MoveResult resumed = executor.resumeOperation(journal, mounts);
+    QVERIFY2(resumed.ok, qPrintable(resumed.error));
+    QVERIFY(!QFileInfo::exists(sourceLibrary + QStringLiteral("/steamapps/appmanifest_12345.acf")));
+    QVERIFY(QFileInfo::exists(destLibrary + QStringLiteral("/steamapps/appmanifest_12345.acf")));
+    QCOMPARE(testutil::readFile(destFile), original);
 }
 
 void MoverTest::sequentialBatchRefreshesVdf()

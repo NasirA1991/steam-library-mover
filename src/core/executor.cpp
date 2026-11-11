@@ -20,6 +20,7 @@
 
 #include <cerrno>
 #include <cstring>
+#include <limits>
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -56,6 +57,20 @@ QJsonArray componentsToJson(const QVector<Component> &components)
 QString phaseKey(Phase phase)
 {
     return phaseName(phase);
+}
+
+bool phaseAllowsResume(const QString &phase)
+{
+    return phase == phaseName(Phase::Planned)
+        || phase == phaseName(Phase::CopyingGame)
+        || phase == phaseName(Phase::CopyingAux)
+        || phase == phaseName(Phase::Verifying)
+        || phase == phaseName(Phase::Syncing);
+}
+
+QString manifestBackupName(quint32 appId)
+{
+    return QStringLiteral("appmanifest_%1.acf").arg(appId);
 }
 
 bool backupFile(const QString &source, const QString &destination, QString *error)
@@ -141,9 +156,10 @@ void emitProgress(const MoveExecutor::ProgressFn &callback, Phase phase, const Q
 
 MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
                                  const ProgressFn &progress, const CancelFn &cancelled,
-                                 const PauseFn &paused)
+                                 const PauseFn &paused, const QJsonObject &resumeJournal)
 {
     MoveResult result;
+    const bool resuming = !resumeJournal.isEmpty();
     if (::geteuid() == 0) {
         result.error = QStringLiteral("Refusing to move games as root");
         return result;
@@ -151,6 +167,13 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
     if (plan.hasBlocker()) {
         result.error = QStringLiteral("The move plan still has blockers");
         return result;
+    }
+    if (resuming) {
+        QString reason;
+        if (!canResume(resumeJournal, &reason)) {
+            result.error = QStringLiteral("This operation cannot be resumed: %1").arg(reason);
+            return result;
+        }
     }
     QString stateError;
     {
@@ -169,45 +192,61 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
         return result;
     }
 
-    const QString opId = JournalStore::newOperationId();
+    const QString opId = resuming ? resumeJournal.value(QStringLiteral("opId")).toString()
+                                  : JournalStore::newOperationId();
     const QString journalPath = JournalStore::journalPath(opId);
-    QString backupError;
-    if (!fsutil::ensureDir(JournalStore::backupDir(opId), &backupError)) {
-        result.error = backupError;
+    const QString backupDir = JournalStore::backupDir(opId);
+    if (!resuming) {
+        QString backupError;
+        if (!fsutil::ensureDir(backupDir, &backupError)) {
+            result.error = backupError;
+            return result;
+        }
+    } else if (!QFileInfo(backupDir).isDir()) {
+        result.error = QStringLiteral("The operation backup directory is missing");
         return result;
     }
 
-    Logger logger(JournalStore::logPath(opId));
+    // Always use the standard log path; never trust an arbitrary path from a journal.
+    const QString logPath = JournalStore::logPath(opId);
+    Logger logger(logPath);
     if (!logger.open(&stateError)) {
         result.error = stateError;
         return result;
     }
     result.journalPath = journalPath;
     result.logPath = logger.path();
-    logger.write(QStringLiteral("Move operation %1 starting for app %2 (%3)")
-                     .arg(opId)
+    logger.write(QStringLiteral("Move operation %1 %2 for app %3 (%4)")
+                     .arg(opId, resuming ? QStringLiteral("resuming") : QStringLiteral("starting"))
                      .arg(plan.game.appId)
                      .arg(plan.game.name));
 
     QJsonObject journal;
-    journal.insert(QStringLiteral("version"), 1);
-    journal.insert(QStringLiteral("opId"), opId);
+    if (resuming) {
+        journal = resumeJournal;
+    } else {
+        journal.insert(QStringLiteral("version"), 1);
+        journal.insert(QStringLiteral("opId"), opId);
+        journal.insert(QStringLiteral("createdAt"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+        journal.insert(QStringLiteral("appId"), static_cast<qint64>(plan.game.appId));
+        journal.insert(QStringLiteral("name"), plan.game.name);
+        journal.insert(QStringLiteral("installDir"), plan.game.installDir);
+        journal.insert(QStringLiteral("sourceLibrary"), plan.sourceLibraryPath);
+        journal.insert(QStringLiteral("destinationLibrary"), plan.destLibraryPath);
+        journal.insert(QStringLiteral("manifest"), plan.game.manifestPath);
+        journal.insert(QStringLiteral("vdf"), plan.libraryFoldersPath);
+        journal.insert(QStringLiteral("backupDir"), backupDir);
+        journal.insert(QStringLiteral("logPath"), logger.path());
+        journal.insert(QStringLiteral("components"), componentsToJson(plan.components));
+        journal.insert(QStringLiteral("keepSourceBackup"), plan.options.keepSourceBackup);
+    }
     journal.insert(QStringLiteral("state"), QStringLiteral("in-progress"));
     journal.insert(QStringLiteral("phase"), phaseKey(Phase::Planned));
-    journal.insert(QStringLiteral("createdAt"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
-    journal.insert(QStringLiteral("updatedAt"), journal.value(QStringLiteral("createdAt")));
-    journal.insert(QStringLiteral("appId"), static_cast<qint64>(plan.game.appId));
-    journal.insert(QStringLiteral("name"), plan.game.name);
-    journal.insert(QStringLiteral("installDir"), plan.game.installDir);
-    journal.insert(QStringLiteral("sourceLibrary"), plan.sourceLibraryPath);
-    journal.insert(QStringLiteral("destinationLibrary"), plan.destLibraryPath);
-    journal.insert(QStringLiteral("manifest"), plan.game.manifestPath);
-    journal.insert(QStringLiteral("vdf"), plan.libraryFoldersPath);
-    journal.insert(QStringLiteral("backupDir"), JournalStore::backupDir(opId));
-    journal.insert(QStringLiteral("logPath"), logger.path());
-    journal.insert(QStringLiteral("components"), componentsToJson(plan.components));
-    journal.insert(QStringLiteral("keepSourceBackup"), plan.options.keepSourceBackup);
+    journal.insert(QStringLiteral("updatedAt"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    journal.insert(QStringLiteral("fullVerify"), plan.options.fullVerify);
     journal.insert(QStringLiteral("error"), QString());
+    journal.insert(QStringLiteral("attempts"),
+                   journal.value(QStringLiteral("attempts")).toInt() + 1);
 
     auto writeJournal = [&]() {
         journal.insert(QStringLiteral("updatedAt"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
@@ -258,16 +297,15 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
     if (!MovePlanner::revalidate(plan, mounts, &stateError))
         return fail(QStringLiteral("Preflight failed: %1").arg(stateError));
 
-    if (!backupFile(plan.libraryFoldersPath,
-                    joinPath(JournalStore::backupDir(opId), QStringLiteral("libraryfolders.vdf")),
-                    &stateError)) {
-        return fail(QStringLiteral("Cannot back up libraryfolders.vdf: %1").arg(stateError));
-    }
-    if (!backupFile(plan.game.manifestPath,
-                    joinPath(JournalStore::backupDir(opId),
-                             QStringLiteral("appmanifest_%1.acf").arg(plan.game.appId)),
-                    &stateError)) {
-        return fail(QStringLiteral("Cannot back up appmanifest: %1").arg(stateError));
+    if (!resuming) {
+        if (!backupFile(plan.libraryFoldersPath,
+                        joinPath(backupDir, QStringLiteral("libraryfolders.vdf")), &stateError)) {
+            return fail(QStringLiteral("Cannot back up libraryfolders.vdf: %1").arg(stateError));
+        }
+        if (!backupFile(plan.game.manifestPath,
+                        joinPath(backupDir, manifestBackupName(plan.game.appId)), &stateError)) {
+            return fail(QStringLiteral("Cannot back up appmanifest: %1").arg(stateError));
+        }
     }
 
     quint64 offset = 0;
@@ -288,52 +326,77 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
 
         if (!fsutil::ensureDir(QFileInfo(component.destination).absolutePath(), &stateError))
             return fail(stateError);
-        if (pathExistsNoFollow(component.destination)) {
-            return fail(QStringLiteral("Destination already exists: %1. Remove the partial copy or "
-                                       "use recovery before retrying.")
-                            .arg(component.destination));
-        }
 
-        if (component.kind == ComponentKind::WorkshopManifest) {
-            const auto data = fsutil::readFile(component.source, 32 * 1024 * 1024, &stateError);
-            if (!data) {
-                return fail(QStringLiteral("Cannot read %1: %2")
-                                .arg(component.source, stateError));
-            }
-            if (!fsutil::writeFileAtomic(component.destination, *data, 0644, &stateError)) {
-                return fail(QStringLiteral("Cannot write %1: %2")
-                                .arg(component.destination, stateError));
-            }
-            if (plan.options.fullVerify) {
-                if (QCryptographicHash::hash(*data, QCryptographicHash::Sha256)
-                    != QCryptographicHash::hash(fsutil::readFile(component.destination, 32 * 1024 * 1024).value_or(QByteArray()),
-                                                QCryptographicHash::Sha256)) {
-                    return fail(QStringLiteral("Verification failed for %1").arg(component.destination));
+        auto verifyComponent = [&](QString *verifyError) -> bool {
+            if (component.kind == ComponentKind::WorkshopManifest) {
+                const auto sourceData = fsutil::readFile(component.source, 32 * 1024 * 1024, verifyError);
+                if (!sourceData)
+                    return false;
+                const auto destData = fsutil::readFile(component.destination, 32 * 1024 * 1024, verifyError);
+                if (!destData)
+                    return false;
+                if (*sourceData != *destData) {
+                    if (verifyError)
+                        *verifyError = QStringLiteral("Workshop manifest content differs");
+                    return false;
                 }
+                if (plan.options.fullVerify
+                    && QCryptographicHash::hash(*sourceData, QCryptographicHash::Sha256)
+                        != QCryptographicHash::hash(*destData, QCryptographicHash::Sha256)) {
+                    if (verifyError)
+                        *verifyError = QStringLiteral("Workshop manifest checksum differs");
+                    return false;
+                }
+                return true;
             }
-            offset += component.bytes;
-            notify(phase, QStringLiteral("Copied %1").arg(componentKindName(component.kind)),
-                   component.destination, offset);
-            continue;
+            return CopyEngine::verifyTree(component.source, component.destination,
+                                          plan.options.fullVerify, verifyError, cancelled);
+        };
+        auto copyComponent = [&](QString *copyError) -> bool {
+            if (component.kind == ComponentKind::WorkshopManifest) {
+                const auto data = fsutil::readFile(component.source, 32 * 1024 * 1024, copyError);
+                if (!data)
+                    return false;
+                return fsutil::writeFileAtomic(component.destination, *data, 0644, copyError);
+            }
+            qint64 copied = 0;
+            return CopyEngine::copyTree(
+                component.source, component.destination,
+                [&](quint64 bytesInTree, const QString &currentFile) {
+                    emitProgress(progress, phase,
+                                 QStringLiteral("Copying %1").arg(componentKindName(component.kind)),
+                                 currentFile, offset + bytesInTree, plan.totalBytes);
+                },
+                cancelled, &copied, copyError, paused);
+        };
+
+        if (pathExistsNoFollow(component.destination)) {
+            if (!resuming) {
+                return fail(QStringLiteral("Destination already exists: %1. Remove the partial copy or "
+                                           "use recovery before retrying.")
+                                .arg(component.destination));
+            }
+            QString verifyError;
+            if (verifyComponent(&verifyError)) {
+                logger.write(QStringLiteral("Resume: reusing verified %1 at %2")
+                                 .arg(componentKindName(component.kind), component.destination));
+                offset += component.bytes;
+                notify(phase, QStringLiteral("Reused verified %1")
+                                  .arg(componentKindName(component.kind)),
+                       component.destination, offset);
+                continue;
+            }
+            if (cancelled && cancelled())
+                return cancelMove();
+            logger.write(QStringLiteral("Resume: existing %1 failed verification (%2); recopying")
+                             .arg(componentKindName(component.kind), verifyError));
+            if (!fsutil::removeTree(component.destination, &stateError))
+                return fail(QStringLiteral("Cannot remove incomplete destination: %1").arg(stateError));
         }
 
-        qint64 copied = 0;
-        const bool copyOk = CopyEngine::copyTree(
-            component.source, component.destination,
-            [&](quint64 bytesInTree, const QString &currentFile) {
-                emitProgress(progress, phase, QStringLiteral("Copying %1").arg(componentKindName(component.kind)),
-                             currentFile, offset + bytesInTree, plan.totalBytes);
-            },
-            cancelled, &copied, &stateError, paused);
-        if (!copyOk) {
-            if (cancelled && cancelled()) {
-                journal.insert(QStringLiteral("state"), QStringLiteral("cancelled"));
-                writeJournal();
-                result.cancelled = true;
-                result.error = QStringLiteral("Cancelled by user");
-                emitProgress(progress, Phase::Cancelled, result.error, {}, offset, plan.totalBytes);
-                return result;
-            }
+        if (!copyComponent(&stateError)) {
+            if (cancelled && cancelled())
+                return cancelMove();
             return fail(QStringLiteral("Copy failed: %1").arg(stateError));
         }
 
@@ -344,11 +407,26 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
                                                    : QString());
         setPhase(Phase::Verifying, verifyMessage);
         notify(Phase::Verifying, verifyMessage, QString(), offset);
-        if (!CopyEngine::verifyTree(component.source, component.destination,
-                                    plan.options.fullVerify, &stateError, cancelled)) {
+        if (!verifyComponent(&stateError)) {
             if (cancelled && cancelled())
                 return cancelMove();
-            return fail(QStringLiteral("Verification failed: %1").arg(stateError));
+            // A partial write or transient I/O error can leave a complete-looking
+            // copy. Remove it and retry once; resume relies on this to repair a
+            // destination that failed verification in an earlier attempt.
+            logger.write(QStringLiteral("Verification failed for %1: %2; recopying once")
+                             .arg(component.destination, stateError));
+            if (!fsutil::removeTree(component.destination, &stateError))
+                return fail(QStringLiteral("Cannot remove failed destination: %1").arg(stateError));
+            setPhase(phase, QStringLiteral("Repairing %1").arg(componentKindName(component.kind)));
+            notify(phase, QStringLiteral("Repairing %1").arg(componentKindName(component.kind)),
+                   QString(), offset);
+            if (!copyComponent(&stateError)) {
+                if (cancelled && cancelled())
+                    return cancelMove();
+                return fail(QStringLiteral("Copy failed during repair: %1").arg(stateError));
+            }
+            if (!verifyComponent(&stateError))
+                return fail(QStringLiteral("Verification failed after repair: %1").arg(stateError));
         }
         if (cancelled && cancelled())
             return cancelMove();
@@ -488,6 +566,210 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
                                                           ? QString()
                                                           : QStringLiteral(" with warnings: %1").arg(result.error)));
     return result;
+}
+
+MovePlan MoveExecutor::planFromJournal(const QJsonObject &journal, QString *error)
+{
+    const auto fail = [&](const QString &message) {
+        if (error)
+            *error = message;
+        return MovePlan{};
+    };
+    const QString opId = journal.value(QStringLiteral("opId")).toString();
+    if (!JournalStore::isValidOperationId(opId))
+        return fail(QStringLiteral("Invalid operation id in journal"));
+    const QString sourceLibrary = journal.value(QStringLiteral("sourceLibrary")).toString();
+    const QString destLibrary = journal.value(QStringLiteral("destinationLibrary")).toString();
+    const QString vdf = journal.value(QStringLiteral("vdf")).toString();
+    const QString manifest = journal.value(QStringLiteral("manifest")).toString();
+    if (sourceLibrary.isEmpty() || !QDir::isAbsolutePath(sourceLibrary)
+        || destLibrary.isEmpty() || !QDir::isAbsolutePath(destLibrary)
+        || vdf.isEmpty() || !QDir::isAbsolutePath(vdf)
+        || manifest.isEmpty() || !QDir::isAbsolutePath(manifest)) {
+        return fail(QStringLiteral("Journal is missing absolute library or manifest paths"));
+    }
+    if (QFileInfo(manifest).absolutePath()
+        != QDir(sourceLibrary + QStringLiteral("/steamapps")).absolutePath()) {
+        return fail(QStringLiteral("Journal manifest is outside the source library"));
+    }
+
+    MovePlan plan;
+    plan.game.appId = static_cast<quint32>(journal.value(QStringLiteral("appId")).toInteger());
+    plan.game.name = journal.value(QStringLiteral("name")).toString();
+    plan.game.installDir = journal.value(QStringLiteral("installDir")).toString();
+    plan.game.manifestPath = manifest;
+    plan.game.libraryPath = sourceLibrary;
+    plan.sourceLibraryPath = sourceLibrary;
+    plan.destLibraryPath = destLibrary;
+    plan.libraryFoldersPath = vdf;
+    plan.options.fullVerify = journal.value(QStringLiteral("fullVerify")).toBool(true);
+    plan.options.keepSourceBackup = journal.value(QStringLiteral("keepSourceBackup")).toBool(false);
+
+    const QJsonArray components = journal.value(QStringLiteral("components")).toArray();
+    if (components.isEmpty())
+        return fail(QStringLiteral("Journal has no components to resume"));
+    quint64 total = 0;
+    quint64 gameBytes = 0;
+    bool hasManifest = false;
+    for (const QJsonValue &value : components) {
+        const QJsonObject object = value.toObject();
+        Component component;
+        const int kind = object.value(QStringLiteral("kind")).toInt();
+        if (kind < static_cast<int>(ComponentKind::Game)
+            || kind > static_cast<int>(ComponentKind::WorkshopManifest)) {
+            return fail(QStringLiteral("Journal component has an invalid kind"));
+        }
+        component.kind = static_cast<ComponentKind>(kind);
+        component.source = object.value(QStringLiteral("source")).toString();
+        component.destination = object.value(QStringLiteral("destination")).toString();
+        component.bytes = static_cast<quint64>(object.value(QStringLiteral("bytes")).toInteger());
+        component.required = object.value(QStringLiteral("required")).toBool(true);
+        component.skip = object.value(QStringLiteral("skip")).toBool(false);
+        component.note = object.value(QStringLiteral("note")).toString();
+        if (!component.skip
+            && (component.source.isEmpty() || !QDir::isAbsolutePath(component.source)
+                || component.destination.isEmpty()
+                || !QDir::isAbsolutePath(component.destination))) {
+            return fail(QStringLiteral("Journal component has an invalid source or destination path"));
+        }
+        if (component.kind == ComponentKind::Manifest)
+            hasManifest = true;
+        if (!component.skip && component.kind != ComponentKind::Manifest) {
+            if (std::numeric_limits<quint64>::max() - total < component.bytes)
+                return fail(QStringLiteral("Journal component sizes overflow"));
+            total += component.bytes;
+        }
+        if (component.kind == ComponentKind::Game)
+            gameBytes = component.bytes;
+        plan.components.append(component);
+    }
+    if (!hasManifest)
+        return fail(QStringLiteral("Journal has no manifest component"));
+    plan.totalBytes = total;
+    plan.game.sizeOnDisk = gameBytes;
+    return plan;
+}
+
+bool MoveExecutor::canResume(const QJsonObject &journal, QString *reason)
+{
+    const auto no = [&](const QString &message) {
+        if (reason)
+            *reason = message;
+        return false;
+    };
+    if (journal.isEmpty())
+        return no(QStringLiteral("Operation journal is empty"));
+    const QString opId = journal.value(QStringLiteral("opId")).toString();
+    if (!JournalStore::isValidOperationId(opId))
+        return no(QStringLiteral("Invalid operation id"));
+    if (journal.value(QStringLiteral("state")).toString() == QStringLiteral("done")
+        || journal.value(QStringLiteral("state")).toString() == QStringLiteral("done-with-warnings")
+        || journal.value(QStringLiteral("state")).toString() == QStringLiteral("rolled-back")) {
+        return no(QStringLiteral("Operation is already finished"));
+    }
+    if (!phaseAllowsResume(journal.value(QStringLiteral("phase")).toString())) {
+        return no(QStringLiteral("The manifest commit has started; roll back instead of resuming"));
+    }
+
+    QString parseError;
+    const MovePlan plan = planFromJournal(journal, &parseError);
+    if (!parseError.isEmpty())
+        return no(parseError);
+
+    const QString backupDir = journal.value(QStringLiteral("backupDir")).toString();
+    const QString operationsRoot = canonicalOrAbsolute(JournalStore::operationsDir());
+    if (backupDir.isEmpty()
+        || !pathIsWithin(canonicalOrAbsolute(backupDir), operationsRoot)
+        || canonicalOrAbsolute(backupDir)
+            != canonicalOrAbsolute(JournalStore::backupDir(opId))) {
+        return no(QStringLiteral("Journal backup directory is missing or unsafe"));
+    }
+    const QString vdfBackup = joinPath(backupDir, QStringLiteral("libraryfolders.vdf"));
+    const QString manifestBackup = joinPath(backupDir, manifestBackupName(plan.game.appId));
+    if (!QFileInfo::exists(vdfBackup) || !QFileInfo::exists(manifestBackup))
+        return no(QStringLiteral("The original VDF or manifest backup is missing"));
+    if (!QFileInfo::exists(plan.game.manifestPath))
+        return no(QStringLiteral("The source manifest no longer exists"));
+    if (!QFileInfo::exists(plan.sourceLibraryPath) || !QFileInfo::exists(plan.destLibraryPath))
+        return no(QStringLiteral("The source or destination library is no longer mounted"));
+    if (!QFileInfo::exists(plan.libraryFoldersPath))
+        return no(QStringLiteral("The Steam library database no longer exists"));
+
+    const QString steamRoot = QFileInfo(QFileInfo(plan.libraryFoldersPath).absolutePath()).absolutePath();
+    const QString allowedLibrary = canonicalOrAbsolute(plan.destLibraryPath);
+    const QString allowedRoot = canonicalOrAbsolute(steamRoot);
+    for (const Component &component : plan.components) {
+        if (component.skip)
+            continue;
+        const QString destination = canonicalOrAbsolute(component.destination);
+        const bool inDestination = pathIsWithin(destination, allowedLibrary);
+        // A shared Proton prefix may intentionally stay at its source path under
+        // the Steam root. Every other component must live in the destination
+        // library; "somewhere under the Steam root" is not specific enough.
+        const bool sharedPrefix = component.kind == ComponentKind::Prefix
+            && destination == canonicalOrAbsolute(component.source);
+        if (!inDestination
+            && !(sharedPrefix && pathIsWithin(destination, allowedRoot))) {
+            return no(QStringLiteral("A journal destination escapes the destination library"));
+        }
+        if (component.kind == ComponentKind::Manifest && QFileInfo::exists(component.destination))
+            return no(QStringLiteral("The destination manifest already exists; roll back instead"));
+    }
+
+    const auto backupVdf = fsutil::readFile(vdfBackup, 32 * 1024 * 1024);
+    const auto backupManifest = fsutil::readFile(manifestBackup, 8 * 1024 * 1024);
+    if (!backupVdf || !backupManifest)
+        return no(QStringLiteral("The original VDF or manifest backup cannot be read"));
+    const auto currentVdf = fsutil::readFile(plan.libraryFoldersPath, 32 * 1024 * 1024);
+    const auto currentManifest = fsutil::readFile(plan.game.manifestPath, 8 * 1024 * 1024);
+    if (!currentVdf || !currentManifest)
+        return no(QStringLiteral("The current library database or manifest cannot be read"));
+    if (*backupVdf != *currentVdf)
+        return no(QStringLiteral("libraryfolders.vdf changed since the operation started"));
+    if (*backupManifest != *currentManifest)
+        return no(QStringLiteral("The source manifest changed since the operation started"));
+    return true;
+}
+
+MoveResult MoveExecutor::resumeOperation(const QJsonObject &journal, const MountTable &mounts,
+                                         const ProgressFn &progress, const CancelFn &cancelled,
+                                         const PauseFn &paused)
+{
+    MoveResult result;
+    QString error;
+    if (!canResume(journal, &error)) {
+        result.error = error;
+        return result;
+    }
+    MovePlan plan = planFromJournal(journal, &error);
+    if (!error.isEmpty()) {
+        result.error = error;
+        return result;
+    }
+    const QString backupDir = journal.value(QStringLiteral("backupDir")).toString();
+    const QString vdfBackup = joinPath(backupDir, QStringLiteral("libraryfolders.vdf"));
+    const QString manifestBackup = joinPath(backupDir, manifestBackupName(plan.game.appId));
+    const auto vdfData = fsutil::readFile(vdfBackup, 32 * 1024 * 1024, &error);
+    if (!vdfData) {
+        result.error = error;
+        return result;
+    }
+    const auto manifestData = fsutil::readFile(manifestBackup, 8 * 1024 * 1024, &error);
+    if (!manifestData) {
+        result.error = error;
+        return result;
+    }
+    plan.snapshot.vdfHash = QCryptographicHash::hash(*vdfData, QCryptographicHash::Sha256);
+    plan.snapshot.manifestHash = QCryptographicHash::hash(*manifestData, QCryptographicHash::Sha256);
+    QFileInfo manifestInfo(plan.game.manifestPath);
+    plan.snapshot.manifestSize = manifestInfo.size();
+    plan.snapshot.manifestMtime = manifestInfo.lastModified().toSecsSinceEpoch();
+    struct stat st {};
+    if (::stat(QFile::encodeName(plan.sourceLibraryPath).constData(), &st) == 0)
+        plan.snapshot.sourceDevice = static_cast<quint64>(st.st_dev);
+    if (::stat(QFile::encodeName(plan.destLibraryPath).constData(), &st) == 0)
+        plan.snapshot.destinationDevice = static_cast<quint64>(st.st_dev);
+    return execute(plan, mounts, progress, cancelled, paused, journal);
 }
 
 QList<QJsonObject> MoveExecutor::unfinishedOperations()

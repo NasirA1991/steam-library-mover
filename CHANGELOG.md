@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.9 — unreleased
+
+- Recovery can resume an interrupted copy before the manifest commit. Verified destination
+  components are reused; incomplete or corrupt components are removed and copied again.
+- A failed verification now triggers one automatic remove-and-recopy repair before the operation
+  is marked failed.
+- Resume refuses changed source manifests or library databases, and validates journaled destination
+  paths against the destination library.
+
 ## 0.1.8 — 2026-11-11
 
 - The NTFS acknowledgement can no longer be bypassed by reopening the review

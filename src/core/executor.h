@@ -20,7 +20,15 @@ public:
     using PauseFn = std::function<bool()>;
 
     MoveResult execute(const MovePlan &plan, const MountTable &mounts, const ProgressFn &progress = {},
-                       const CancelFn &cancelled = {}, const PauseFn &paused = {});
+                       const CancelFn &cancelled = {}, const PauseFn &paused = {},
+                       const QJsonObject &resumeJournal = {});
+
+    // Rebuild a plan from a journal so an interrupted copy can be resumed.
+    static MovePlan planFromJournal(const QJsonObject &journal, QString *error = nullptr);
+    static bool canResume(const QJsonObject &journal, QString *reason = nullptr);
+    MoveResult resumeOperation(const QJsonObject &journal, const MountTable &mounts,
+                               const ProgressFn &progress = {}, const CancelFn &cancelled = {},
+                               const PauseFn &paused = {});
 
     static QList<QJsonObject> unfinishedOperations();
     static bool rollbackOperation(const QJsonObject &journal, QString *error = nullptr);

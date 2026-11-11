@@ -122,8 +122,8 @@ manifest has been updated. If something fails before that point, the source rema
   itself, which is the common cause of Steam's “content file locked” failure.
 - **NTFS preflight** — detects Windows-invalid names, reserved names, case collisions and
   executable-bit risks before copying to NTFS/exFAT/FAT32.
-- **Journaled and recoverable** — every operation is recorded and can be inspected or rolled back
-  from the Recovery dialog.
+- **Journaled and recoverable** — every operation is recorded; interrupted copies can be resumed
+  from the Recovery dialog, and unsafe states can be rolled back.
 - **Batch moves** — move several games in one queue, pause/resume, cancel safely and keep source
   backups when you want extra assurance.
 - **Fast copies where possible** — uses copy-on-write reflinks on Btrfs/XFS, with a verified normal
@@ -200,6 +200,11 @@ steam-library-mover-cli move --appid 346010 --to /mnt/games/SteamLibrary --yes
 
 # Check library health
 steam-library-mover-cli health
+
+# Inspect, resume or roll back an interrupted operation
+steam-library-mover-cli recover --list
+steam-library-mover-cli recover --resume <operation-id>
+steam-library-mover-cli recover --rollback <operation-id>
 ```
 
 Run `steam-library-mover-cli --help` for all options.

@@ -423,7 +423,7 @@ int commandHealth(const QCommandLineParser &parser, const SteamRoot &root,
     return 0;
 }
 
-int commandRecover(const QCommandLineParser &parser)
+int commandRecover(const QCommandLineParser &parser, const MountTable &mounts)
 {
     if (parser.isSet(QStringLiteral("list"))) {
         const QList<QJsonObject> operations = MoveExecutor::unfinishedOperations();
@@ -440,9 +440,15 @@ int commandRecover(const QCommandLineParser &parser)
         }
         return 0;
     }
-    const QString opId = parser.value(QStringLiteral("rollback"));
+    const bool resume = parser.isSet(QStringLiteral("resume"));
+    if (resume && parser.isSet(QStringLiteral("rollback"))) {
+        err << "Use either --resume or --rollback, not both.\n";
+        return 1;
+    }
+    const QString opId = parser.value(resume ? QStringLiteral("resume")
+                                              : QStringLiteral("rollback"));
     if (opId.isEmpty()) {
-        err << "Use --list or --rollback <opId>.\n";
+        err << "Use --list, --resume <opId>, or --rollback <opId>.\n";
         return 1;
     }
     if (!JournalStore::isValidOperationId(opId)) {
@@ -455,6 +461,16 @@ int commandRecover(const QCommandLineParser &parser)
         return 1;
     }
     QString error;
+    if (resume) {
+        MoveExecutor executor;
+        const MoveResult result = executor.resumeOperation(journal, mounts);
+        if (!result.ok) {
+            err << result.error << '\n';
+            return 1;
+        }
+        out << "Resumed and completed " << opId << '\n';
+        return 0;
+    }
     if (!MoveExecutor::rollbackOperation(journal, &error)) {
         err << error << '\n';
         return 1;
@@ -507,6 +523,8 @@ int main(int argc, char **argv)
     parser.addOption({QStringLiteral("apply"), QStringLiteral("Apply doctor changes")});
     parser.addOption({QStringLiteral("list"), QStringLiteral("List unfinished operations")});
     parser.addOption({QStringLiteral("rollback"), QStringLiteral("Rollback operation id"), QStringLiteral("id")});
+    parser.addOption({QStringLiteral("resume"), QStringLiteral("Resume an interrupted operation id"),
+                      QStringLiteral("id")});
     parser.addPositionalArgument(QStringLiteral("command"),
                                  QStringLiteral("list | plan | move | doctor | fix-compatdata | recover | health"),
                                  QStringLiteral("[command]"));
@@ -540,7 +558,7 @@ int main(int argc, char **argv)
     if (command == QStringLiteral("fix-compatdata"))
         return commandFixCompatData(parser, root, mounts);
     if (command == QStringLiteral("recover"))
-        return commandRecover(parser);
+        return commandRecover(parser, mounts);
     if (command == QStringLiteral("health"))
         return commandHealth(parser, root, mounts);
 

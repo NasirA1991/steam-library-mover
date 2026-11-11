@@ -2922,8 +2922,9 @@ void MainWindow::showRecovery()
     dialog.resize(900, 480);
     auto *layout = new QVBoxLayout(&dialog);
     auto *intro = new QLabel(QStringLiteral(
-                                 "These operations did not reach a clean finished state. A rollback is only "
-                                 "safe before the source manifest was removed. Review the log first."),
+                                 "These operations did not reach a clean finished state. An interrupted copy "
+                                 "can often be resumed; a rollback is only safe before the source manifest "
+                                 "was removed. Review the log first."),
                              &dialog);
     intro->setWordWrap(true);
     layout->addWidget(intro);
@@ -2953,6 +2954,8 @@ void MainWindow::showRecovery()
         intro->setText(QStringLiteral("No unfinished operations were found."));
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    auto *resume = buttons->addButton(QStringLiteral("Resume selected"),
+                                       QDialogButtonBox::ActionRole);
     auto *rollback = buttons->addButton(QStringLiteral("Roll back selected"),
                                          QDialogButtonBox::ActionRole);
     auto *viewLog = buttons->addButton(QStringLiteral("View log"),
@@ -2966,6 +2969,17 @@ void MainWindow::showRecovery()
         const int row = table->currentRow();
         return (row >= 0 && row < operations.size()) ? operations.at(row) : QJsonObject{};
     };
+    const auto refreshActions = [&]() {
+        const QJsonObject operation = selectedOperation();
+        QString reason;
+        const bool canResume = !operation.isEmpty()
+            && slm::MoveExecutor::canResume(operation, &reason);
+        resume->setEnabled(canResume);
+        resume->setToolTip(canResume ? QStringLiteral("Reuse verified files and continue this operation")
+                                     : reason);
+    };
+    connect(table, &QTableWidget::itemSelectionChanged, &dialog, refreshActions);
+    refreshActions();
     connect(viewLog, &QPushButton::clicked, &dialog, [&]() {
         const QJsonObject operation = selectedOperation();
         if (operation.isEmpty()) {
@@ -3006,6 +3020,61 @@ void MainWindow::showRecovery()
         }
         dialog.accept();
     });
+    connect(resume, &QPushButton::clicked, &dialog, [&]() {
+        const QJsonObject operation = selectedOperation();
+        if (operation.isEmpty()) {
+            QMessageBox::information(&dialog, QStringLiteral("Recovery"),
+                                     QStringLiteral("Select an operation first."));
+            return;
+        }
+        QString reason;
+        if (!slm::MoveExecutor::canResume(operation, &reason)) {
+            QMessageBox::information(&dialog, QStringLiteral("Cannot resume"), reason);
+            return;
+        }
+        if (QMessageBox::question(&dialog, QStringLiteral("Resume operation"),
+                                  QStringLiteral("Continue copying this operation? Verified files at the "
+                                                 "destination are reused; incomplete or corrupt files are "
+                                                 "copied again. The source remains untouched until commit."))
+            != QMessageBox::Yes)
+            return;
+        QString error;
+        const slm::MountTable mounts = slm::MountTable::load(&error);
+        if (!mounts.isValid()) {
+            QMessageBox::critical(&dialog, QStringLiteral("Cannot resume"), error);
+            return;
+        }
+        QProgressDialog progress(QStringLiteral("Resuming operation…"), QStringLiteral("Cancel"),
+                                 0, 100, &dialog);
+        progress.setWindowModality(Qt::WindowModal);
+        progress.setAutoClose(false);
+        progress.setAutoReset(false);
+        progress.setMinimumDuration(0);
+        progress.setValue(0);
+        slm::MoveExecutor executor;
+        const slm::MoveResult result = executor.resumeOperation(
+            operation, mounts,
+            [&](const slm::MoveProgress &update) {
+                if (update.bytesTotal > 0)
+                    progress.setValue(static_cast<int>(qMin<quint64>(
+                        100, update.bytesDone * 100 / update.bytesTotal)));
+                progress.setLabelText(update.message.isEmpty()
+                                          ? slm::phaseName(update.phase)
+                                          : update.message);
+                QCoreApplication::processEvents();
+            },
+            [&]() { return progress.wasCanceled(); });
+        progress.close();
+        if (!result.ok) {
+            QMessageBox::critical(&dialog, result.cancelled ? QStringLiteral("Resume cancelled")
+                                                            : QStringLiteral("Resume failed"),
+                                  result.error);
+            return;
+        }
+        QMessageBox::information(&dialog, QStringLiteral("Resumed"),
+                                 QStringLiteral("The interrupted operation was resumed and completed."));
+        dialog.accept();
+    });
     connect(rollback, &QPushButton::clicked, &dialog, [&]() {
         const int row = table->currentRow();
         if (row < 0 || row >= operations.size()) {
@@ -3038,8 +3107,8 @@ void MainWindow::promptUnfinishedOperations()
     if (slm::MoveExecutor::unfinishedOperations().isEmpty())
         return;
     QMessageBox::warning(this, QStringLiteral("Unfinished operation found"),
-                         QStringLiteral("A previous move did not finish cleanly. Open Recovery to inspect "
-                                        "and roll it back if needed."));
+                         QStringLiteral("A previous move did not finish cleanly. Open Recovery to resume "
+                                        "or roll it back."));
     showRecovery();
 }
 

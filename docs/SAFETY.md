@@ -113,9 +113,11 @@ the manifest/VDF commit barrier.
 
 Pause is checked between copy chunks and at file boundaries; it applies to the current game and to
 the start of the next game in a batch queue. Cancellation is checked during copying and verification.
-A cancelled move leaves the source intact and may leave a partial destination. Use Recovery to remove
-the partial copy. Cancellation is intentionally ignored once the manifest commit begins so that the
-library database and manifests cannot be left in a half-updated state.
+A cancelled move leaves the source intact and may leave a partial destination. Recovery can resume the
+operation before the manifest commit begins: it verifies and reuses complete destination components,
+and removes and recopies incomplete or corrupt ones. You can also roll back the partial copy.
+Cancellation is intentionally ignored once the manifest commit begins so that the library database
+and manifests cannot be left in a half-updated state.
 
 In a batch queue, each successful move refreshes the VDF snapshot before the next game so that the
 next manifest/VDF commit sees the updated library database. Free-space planning reserves the full
@@ -133,8 +135,9 @@ batch requirement (including the safety margin) before queueing.
 
 ## Known limitations
 
-- Resume-after-crash is not fully implemented; rollback is supported before the source manifest is
-  removed, otherwise Recovery reports what remains. Keep-source backups are a manual fallback.
+- Resume is supported for operations interrupted before the manifest commit. If the process crashes
+  during or after the commit, roll back if the source manifest still exists; otherwise Recovery
+  reports what remains. Keep-source backups are a manual fallback.
 - Batch queues stop at the first failed move; unfinished games are not attempted. Re-plan them.
 - Unknown filesystem types are refused. `fuseblk` cannot be distinguished reliably from
   NTFS/exFAT/FAT32 by mount type alone, so it is treated as Windows-compatible with an explicit

@@ -94,9 +94,13 @@ parent directory. A backup is stored in the operation directory before any edit.
 State lives under `$XDG_STATE_HOME/steam-library-mover` (normally
 `~/.local/state/steam-library-mover`). The test suite overrides it with `SLM_STATE_DIR`.
 
-An interrupted operation appears in Recovery. Rollback is allowed only while the source manifest
-still exists. It removes destination components recorded in the journal, restores the VDF backup and
-deletes the destination manifest. Source data is never touched by rollback.
+An interrupted operation appears in Recovery. Before the manifest commit starts, it can be resumed:
+verified destination components are reused, while incomplete or corrupt components are removed and
+copied again. The original VDF and appmanifest backups are compared with the current files first, so
+a changed library database or game build cannot be resumed silently. After the manifest commit
+starts, resume is refused; rollback is allowed only while the source manifest still exists. Rollback
+removes destination components recorded in the journal, restores the VDF backup and deletes the
+destination manifest. Source data is never touched by rollback.
 
 ## Why not use Steam's content API?
 
