@@ -391,10 +391,11 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
         if (!fsutil::ensureDir(QFileInfo(component.destination).absolutePath(), &stateError))
             return fail(stateError);
 
-        const quint64 verifyTotal =
-            component.bytes > std::numeric_limits<quint64>::max() / 2
-            ? std::numeric_limits<quint64>::max()
-            : component.bytes * 2;
+        // Verification hashes the destination only when copyTree supplied a
+        // trusted source digest; fallback verification reads both sides but
+        // still reports destination bytes so the bar stays monotonic.
+        const quint64 verifyTotal = component.bytes;
+        CopyEngine::HashLookup copyHashes;
         const QString verifyMessage = QStringLiteral("Verifying %1%2")
                                           .arg(componentKindName(component.kind),
                                                plan.options.fullVerify
@@ -428,7 +429,8 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
                 [&](quint64 bytesVerified, const QString &currentFile) {
                     emitProgress(progress, Phase::Verifying, verifyMessage, currentFile,
                                  bytesVerified, verifyTotal);
-                });
+                },
+                plan.options.fullVerify ? &copyHashes : nullptr);
         };
         auto copyComponent = [&](QString *copyError) -> bool {
             if (component.kind == ComponentKind::WorkshopManifest) {
@@ -445,7 +447,7 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
                                  QStringLiteral("Copying %1").arg(componentKindName(component.kind)),
                                  currentFile, offset + bytesInTree, plan.totalBytes);
                 },
-                abortRequested, &copied, copyError, paused);
+                abortRequested, &copied, copyError, paused, &copyHashes);
         };
 
         if (pathExistsNoFollow(component.destination)) {

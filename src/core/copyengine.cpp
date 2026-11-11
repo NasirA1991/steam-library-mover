@@ -48,6 +48,16 @@ bool waitWhilePaused(const CopyEngine::CancelFn &cancelled, const CopyEngine::Pa
     return true;
 }
 
+void addZeroBytes(QCryptographicHash *hash, quint64 count)
+{
+    static const QByteArray zeros(64 * 1024, '\0');
+    while (count > 0) {
+        const int chunk = static_cast<int>(std::min<quint64>(count, zeros.size()));
+        hash->addData(QByteArrayView(zeros.constData(), chunk));
+        count -= static_cast<quint64>(chunk);
+    }
+}
+
 bool lstatPath(const QString &path, struct stat *st)
 {
     return ::lstat(QFile::encodeName(path).constData(), st) == 0;
@@ -100,7 +110,8 @@ bool applyTimesAndMode(const QString &path, const FileEntry &entry, bool symlink
 bool copySparseExtents(int input, int output, quint64 size, const FileEntry &entry,
                         const CopyEngine::ProgressFn &progress, qint64 baseBytes,
                         const CopyEngine::CancelFn &cancelled, const CopyEngine::PauseFn &paused,
-                        std::vector<char> &buffer, QString *error, bool *supported)
+                        std::vector<char> &buffer, QString *error, bool *supported,
+                        QCryptographicHash *hash)
 {
     *supported = false;
     off_t position = 0;
@@ -120,6 +131,8 @@ bool copySparseExtents(int input, int output, quint64 size, const FileEntry &ent
         const off_t data = ::lseek(input, position, SEEK_DATA);
         if (data < 0) {
             if (errno == ENXIO) {
+                if (hash)
+                    addZeroBytes(hash, size - static_cast<quint64>(position));
                 *supported = true;
                 return true;
             }
@@ -134,9 +147,13 @@ bool copySparseExtents(int input, int output, quint64 size, const FileEntry &ent
             return false;
         }
         if (data >= static_cast<off_t>(size)) {
+            if (hash)
+                addZeroBytes(hash, size - static_cast<quint64>(position));
             *supported = true;
             return true;
         }
+        if (hash && data > position)
+            addZeroBytes(hash, static_cast<quint64>(data - position));
 
         errno = 0;
         off_t hole = ::lseek(input, data, SEEK_HOLE);
@@ -178,6 +195,8 @@ bool copySparseExtents(int input, int output, quint64 size, const FileEntry &ent
                                  .arg(entry.relativePath);
                 return false;
             }
+            if (hash)
+                hash->addData(QByteArrayView(buffer.data(), read));
 
             ssize_t written = 0;
             while (written < read) {
@@ -209,7 +228,8 @@ bool copySparseExtents(int input, int output, quint64 size, const FileEntry &ent
 bool copyRegularFile(const QString &source, const QString &destination, const FileEntry &entry,
                      const CopyEngine::ProgressFn &progress, qint64 *bytesCopied,
                      const CopyEngine::CancelFn &cancelled, const CopyEngine::PauseFn &paused,
-                     std::vector<char> &buffer, QString *error)
+                     std::vector<char> &buffer, QString *error,
+                     CopyEngine::FileHash *hashOut = nullptr)
 {
     const QByteArray sourceName = QFile::encodeName(source);
     const int input = ::open(sourceName.constData(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
@@ -235,6 +255,11 @@ bool copyRegularFile(const QString &source, const QString &destination, const Fi
     }
 
     (void)::posix_fadvise(output, 0, 0, POSIX_FADV_SEQUENTIAL);
+
+    QCryptographicHash sourceHash(QCryptographicHash::Sha256);
+    const bool wantHash = hashOut != nullptr;
+    if (hashOut)
+        *hashOut = CopyEngine::FileHash{};
 
     bool ok = true;
     bool cloned = false;
@@ -278,7 +303,7 @@ bool copyRegularFile(const QString &source, const QString &destination, const Fi
             bool supported = false;
             const bool copied = copySparseExtents(input, output, entry.size, entry, progress,
                                                   baseBytes, cancelled, paused, buffer, error,
-                                                  &supported);
+                                                  &supported, wantHash ? &sourceHash : nullptr);
             if (copied && supported) {
                 if (::ftruncate(output, static_cast<off_t>(entry.size)) != 0) {
                     if (error)
@@ -294,6 +319,7 @@ bool copyRegularFile(const QString &source, const QString &destination, const Fi
                 // Remove any extents written before falling back to a normal copy.
                 (void)::ftruncate(output, 0);
                 (void)::lseek(output, 0, SEEK_SET);
+                sourceHash.reset();
             }
         }
     }
@@ -342,6 +368,8 @@ bool copyRegularFile(const QString &source, const QString &destination, const Fi
         if (!ok)
             break;
 
+        if (wantHash)
+            sourceHash.addData(QByteArrayView(buffer.data(), read));
         *bytesCopied += read;
         if (timer.elapsed() >= kProgressIntervalMs) {
             if (progress)
@@ -349,6 +377,11 @@ bool copyRegularFile(const QString &source, const QString &destination, const Fi
             timer.restart();
         }
     }
+
+    struct stat sourceStat {};
+    bool sourceStatOk = false;
+    if (hashOut && ok && !cloned)
+        sourceStatOk = ::fstat(input, &sourceStat) == 0;
 
     // Game payloads are not read again until verification (and full
     // verification re-reads them deliberately), so release the source pages
@@ -403,6 +436,18 @@ bool copyRegularFile(const QString &source, const QString &destination, const Fi
 
     if (ok && progress)
         progress(static_cast<quint64>(*bytesCopied), entry.relativePath);
+    if (hashOut && ok && !cloned) {
+        hashOut->sha256 = sourceHash.result();
+        if (sourceStatOk) {
+            hashOut->size = static_cast<quint64>(sourceStat.st_size);
+            hashOut->mtimeSec = sourceStat.st_mtim.tv_sec;
+            hashOut->mtimeNsec = sourceStat.st_mtim.tv_nsec;
+            hashOut->ctimeSec = sourceStat.st_ctim.tv_sec;
+            hashOut->ctimeNsec = sourceStat.st_ctim.tv_nsec;
+            hashOut->device = static_cast<quint64>(sourceStat.st_dev);
+            hashOut->inode = static_cast<quint64>(sourceStat.st_ino);
+        }
+    }
     return ok;
 }
 
@@ -471,8 +516,11 @@ bool hashFile(const QString &path, QByteArray *result, QString *error,
 
 bool CopyEngine::copyTree(const QString &source, const QString &destination,
                           const ProgressFn &progress, const CancelFn &cancelled,
-                          qint64 *bytesCopiedOut, QString *error, const PauseFn &paused)
+                          qint64 *bytesCopiedOut, QString *error, const PauseFn &paused,
+                          HashLookup *sourceHashes)
 {
+    if (sourceHashes)
+        sourceHashes->clear();
     FileTree tree = FileTree::scan(source);
     std::vector<char> copyBuffer(static_cast<size_t>(kBufferSize));
     if (!tree.ok) {
@@ -619,11 +667,15 @@ bool CopyEngine::copyTree(const QString &source, const QString &destination,
                 break;
             }
 
+            FileHash sourceHash;
             if (!copyRegularFile(source + QLatin1Char('/') + entry.relativePath, destPath, entry,
-                                 progress, &bytesCopied, cancelled, paused, copyBuffer, error)) {
+                                 progress, &bytesCopied, cancelled, paused, copyBuffer, error,
+                                 sourceHashes ? &sourceHash : nullptr)) {
                 ok = false;
                 break;
             }
+            if (sourceHashes && !sourceHash.sha256.isEmpty())
+                sourceHashes->insert(entry.relativePath, sourceHash);
             if (entry.linkCount > 1)
                 hardLinks.insert(inodeKey, destPath);
             break;
@@ -654,8 +706,11 @@ bool CopyEngine::copyTree(const QString &source, const QString &destination,
 }
 
 bool CopyEngine::verifyTree(const QString &source, const QString &destination, bool fullHash,
-                            QString *error, const CancelFn &cancelled, const ProgressFn &progress)
+                            QString *error, const CancelFn &cancelled, const ProgressFn &progress,
+                            const HashLookup *sourceHashes, VerifyStats *stats)
 {
+    if (stats)
+        *stats = VerifyStats{};
     if (cancelled && cancelled()) {
         if (error)
             *error = QStringLiteral("Cancelled by user");
@@ -723,8 +778,6 @@ bool CopyEngine::verifyTree(const QString &source, const QString &destination, b
                 return false;
             }
             if (fullHash) {
-                QByteArray sourceHash;
-                QByteArray destHash;
                 const QString sp = source + QLatin1Char('/') + sourceEntry.relativePath;
                 const QString dp = destination + QLatin1Char('/') + destEntry.relativePath;
                 auto hashProgress = [&](qint64 bytes) {
@@ -734,13 +787,57 @@ bool CopyEngine::verifyTree(const QString &source, const QString &destination, b
                         verifyTimer.restart();
                     }
                 };
-                if (!hashFile(sp, &sourceHash, error, cancelled, hashProgress)
-                    || !hashFile(dp, &destHash, error, cancelled, hashProgress))
-                    return false;
-                if (sourceHash != destHash) {
-                    if (error)
-                        *error = QStringLiteral("Checksum mismatch: %1").arg(sourceEntry.relativePath);
-                    return false;
+
+                // A normal or sparse copy hashed the source while it was copied.
+                // Reuse that digest only while the fresh source scan still shows
+                // the same size and timestamps; otherwise fall back to hashing
+                // both sides, which also covers reflinks and skipped hardlinks.
+                const FileHash *cached = nullptr;
+                if (sourceHashes) {
+                    const auto it = sourceHashes->constFind(sourceEntry.relativePath);
+                    if (it != sourceHashes->constEnd()
+                        && it->sha256.size() == 32
+                        && it->size == sourceEntry.size
+                        && it->mtimeSec == sourceEntry.mtimeSec
+                        && it->mtimeNsec == sourceEntry.mtimeNsec) {
+                        struct stat current {};
+                        if (::lstat(QFile::encodeName(sp).constData(), &current) == 0
+                            && S_ISREG(current.st_mode)
+                            && static_cast<quint64>(current.st_size) == it->size
+                            && current.st_mtim.tv_sec == it->mtimeSec
+                            && current.st_mtim.tv_nsec == it->mtimeNsec
+                            && current.st_ctim.tv_sec == it->ctimeSec
+                            && current.st_ctim.tv_nsec == it->ctimeNsec
+                            && static_cast<quint64>(current.st_dev) == it->device
+                            && static_cast<quint64>(current.st_ino) == it->inode) {
+                            cached = &it.value();
+                        }
+                    }
+                }
+
+                QByteArray destHash;
+                if (cached) {
+                    if (stats)
+                        ++stats->cachedFiles;
+                    if (!hashFile(dp, &destHash, error, cancelled, hashProgress))
+                        return false;
+                    if (destHash != cached->sha256) {
+                        if (error)
+                            *error = QStringLiteral("Checksum mismatch: %1").arg(sourceEntry.relativePath);
+                        return false;
+                    }
+                } else {
+                    if (stats)
+                        ++stats->sourceFilesHashed;
+                    QByteArray sourceHash;
+                    if (!hashFile(sp, &sourceHash, error, cancelled, {})
+                        || !hashFile(dp, &destHash, error, cancelled, hashProgress))
+                        return false;
+                    if (sourceHash != destHash) {
+                        if (error)
+                            *error = QStringLiteral("Checksum mismatch: %1").arg(sourceEntry.relativePath);
+                        return false;
+                    }
                 }
             }
             break;

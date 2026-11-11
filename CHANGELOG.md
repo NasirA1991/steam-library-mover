@@ -8,6 +8,9 @@
 - Copy completion replaces files and symlinks with an atomic `rename(2)` instead of unlinking
   the old destination first.
 - Full verification now reports hashed bytes instead of showing an indeterminate progress bar.
+- Normal and sparse copies retain a source SHA-256 captured while copying, so full verification
+  reads only the destination unless the source size, timestamps, inode or ctime changed. Reflinks
+  and other uncached entries fall back to hashing both sides.
 - Sparse source files are copied by data extent with `SEEK_HOLE`/`SEEK_DATA`, so holes are not
   materialized as allocated zero blocks when the filesystem supports them.
 - The library sidebar can be hidden from View → Library sidebar (Ctrl+B), and the minimum window

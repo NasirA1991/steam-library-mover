@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include <QByteArray>
+#include <QHash>
 #include <QString>
 #include <QtGlobal>
 
@@ -15,13 +17,35 @@ public:
     using CancelFn = std::function<bool()>;
     using PauseFn = std::function<bool()>;
 
+    struct FileHash
+    {
+        QByteArray sha256;
+        quint64 size = 0;
+        qint64 mtimeSec = 0;
+        qint64 mtimeNsec = 0;
+        qint64 ctimeSec = 0;
+        qint64 ctimeNsec = 0;
+        quint64 device = 0;
+        quint64 inode = 0;
+    };
+    using HashLookup = QHash<QString, FileHash>;
+
+    struct VerifyStats
+    {
+        int sourceFilesHashed = 0;
+        int cachedFiles = 0;
+    };
+
     static bool copyTree(const QString &source, const QString &destination, const ProgressFn &progress,
                          const CancelFn &cancelled, qint64 *bytesCopied = nullptr,
-                         QString *error = nullptr, const PauseFn &paused = {});
+                         QString *error = nullptr, const PauseFn &paused = {},
+                         HashLookup *sourceHashes = nullptr);
 
     static bool verifyTree(const QString &source, const QString &destination, bool fullHash,
                            QString *error = nullptr, const CancelFn &cancelled = {},
-                           const ProgressFn &progress = {});
+                           const ProgressFn &progress = {},
+                           const HashLookup *sourceHashes = nullptr,
+                           VerifyStats *stats = nullptr);
 };
 
 } // namespace slm

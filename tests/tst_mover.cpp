@@ -296,7 +296,7 @@ void MoverTest::executorReportsVerificationProgress()
         });
     QVERIFY2(result.ok, qPrintable(result.error));
     QVERIFY(calls > 0);
-    QCOMPARE(lastTotal, game->bytes * 2);
+    QCOMPARE(lastTotal, game->bytes);
     QCOMPARE(lastDone, lastTotal);
 }
 
@@ -330,7 +330,10 @@ void MoverTest::sparseFileCopyPreservesHoles()
         QSKIP("The test filesystem does not report sparse extents");
 
     QString error;
-    QVERIFY2(CopyEngine::copyTree(source, destination, {}, {}, nullptr, &error), qPrintable(error));
+    CopyEngine::HashLookup hashes;
+    QVERIFY2(CopyEngine::copyTree(source, destination, {}, {}, nullptr, &error, {}, &hashes),
+             qPrintable(error));
+    QCOMPARE(hashes.size(), 1);
     const QString copied = destination + QStringLiteral("/sparse.bin");
     QFile copiedFile(copied);
     QVERIFY(copiedFile.open(QIODevice::ReadOnly));
@@ -345,7 +348,11 @@ void MoverTest::sparseFileCopyPreservesHoles()
     QCOMPARE(::stat(QFile::encodeName(copied).constData(), &destStat), 0);
     QVERIFY2(static_cast<quint64>(destStat.st_blocks) * 512 < sparseSize,
              "The destination lost the sparse holes");
-    QVERIFY2(CopyEngine::verifyTree(source, destination, true, &error), qPrintable(error));
+    CopyEngine::VerifyStats stats;
+    QVERIFY2(CopyEngine::verifyTree(source, destination, true, &error, {}, {}, &hashes, &stats),
+             qPrintable(error));
+    QCOMPARE(stats.cachedFiles, 1);
+    QCOMPARE(stats.sourceFilesHashed, 0);
 }
 
 void MoverTest::verificationReportsProgress()
@@ -360,7 +367,10 @@ void MoverTest::verificationReportsProgress()
     QVERIFY(testutil::writeFile(source + QStringLiteral("/b.bin"), payload));
 
     QString error;
-    QVERIFY2(CopyEngine::copyTree(source, destination, {}, {}, nullptr, &error), qPrintable(error));
+    CopyEngine::HashLookup hashes;
+    QVERIFY2(CopyEngine::copyTree(source, destination, {}, {}, nullptr, &error, {}, &hashes),
+             qPrintable(error));
+    QCOMPARE(hashes.size(), 2);
     quint64 lastBytes = 0;
     int calls = 0;
     QVERIFY2(CopyEngine::verifyTree(
@@ -368,10 +378,31 @@ void MoverTest::verificationReportsProgress()
                  [&](quint64 bytes, const QString &) {
                      lastBytes = bytes;
                      ++calls;
-                 }),
+                 },
+                 &hashes),
              qPrintable(error));
     QVERIFY(calls > 0);
-    QCOMPARE(lastBytes, static_cast<quint64>(payload.size() * 4));
+    // With trusted copy-time source hashes only the destination is read.
+    QCOMPARE(lastBytes, static_cast<quint64>(payload.size() * 2));
+    CopyEngine::VerifyStats stats;
+    QVERIFY2(CopyEngine::verifyTree(source, destination, true, &error, {}, {}, &hashes, &stats),
+             qPrintable(error));
+    QCOMPARE(stats.cachedFiles, 2);
+    QCOMPARE(stats.sourceFilesHashed, 0);
+
+    const QString first = source + QStringLiteral("/a.bin");
+    const QString second = source + QStringLiteral("/b.bin");
+    QVERIFY(QFile::setPermissions(first, QFileDevice::Permissions()));
+    QVERIFY(QFile::setPermissions(second, QFileDevice::Permissions()));
+    // Changing the source metadata invalidates the cached digest, so the
+    // verifier must fall back to reading the source rather than trusting it.
+    error.clear();
+    QVERIFY(!CopyEngine::verifyTree(source, destination, true, &error, {}, {}, &hashes));
+    QVERIFY(!error.isEmpty());
+    QFile::setPermissions(first, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup
+                                     | QFile::ReadOther);
+    QFile::setPermissions(second, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup
+                                      | QFile::ReadOther);
 }
 
 void MoverTest::rollbackRejectsUnsafeJournal()
