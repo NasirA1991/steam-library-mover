@@ -391,6 +391,15 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
         if (!fsutil::ensureDir(QFileInfo(component.destination).absolutePath(), &stateError))
             return fail(stateError);
 
+        const quint64 verifyTotal =
+            component.bytes > std::numeric_limits<quint64>::max() / 2
+            ? std::numeric_limits<quint64>::max()
+            : component.bytes * 2;
+        const QString verifyMessage = QStringLiteral("Verifying %1%2")
+                                          .arg(componentKindName(component.kind),
+                                               plan.options.fullVerify
+                                                   ? QStringLiteral(" (full checksum)")
+                                                   : QString());
         auto verifyComponent = [&](QString *verifyError) -> bool {
             if (component.kind == ComponentKind::WorkshopManifest) {
                 const auto sourceData = fsutil::readFile(component.source, 32 * 1024 * 1024, verifyError);
@@ -413,8 +422,13 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
                 }
                 return true;
             }
-            return CopyEngine::verifyTree(component.source, component.destination,
-                                          plan.options.fullVerify, verifyError, abortRequested);
+            return CopyEngine::verifyTree(
+                component.source, component.destination, plan.options.fullVerify, verifyError,
+                abortRequested,
+                [&](quint64 bytesVerified, const QString &currentFile) {
+                    emitProgress(progress, Phase::Verifying, verifyMessage, currentFile,
+                                 bytesVerified, verifyTotal);
+                });
         };
         auto copyComponent = [&](QString *copyError) -> bool {
             if (component.kind == ComponentKind::WorkshopManifest) {
@@ -464,11 +478,6 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
             return fail(QStringLiteral("Copy failed: %1").arg(stateError));
         }
 
-        const QString verifyMessage = QStringLiteral("Verifying %1%2")
-                                          .arg(componentKindName(component.kind),
-                                               plan.options.fullVerify
-                                                   ? QStringLiteral(" (full checksum)")
-                                                   : QString());
         setPhase(Phase::Verifying, verifyMessage);
         // Until hashing reports its first chunk, keep verification visually
         // indeterminate. Reusing the copy offset here would make the bar jump

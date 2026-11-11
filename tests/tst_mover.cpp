@@ -36,6 +36,7 @@ private slots:
     void doneWithWarningsIsFinished();
     void fullVerificationRejectsSameSizeCorruption();
     void verificationReportsProgress();
+    void executorReportsVerificationProgress();
     void shaderCacheDestinationExistsIsWarning();
     void rollbackRejectsUnsafeJournal();
     void prefixMoveToRealDirectory();
@@ -253,6 +254,49 @@ void MoverTest::fullVerificationRejectsSameSizeCorruption()
     QVERIFY(MoveOptions{}.fullVerify);
 }
 
+
+void MoverTest::executorReportsVerificationProgress()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    qputenv("SLM_STATE_DIR", (temp.path() + QStringLiteral("/state")).toUtf8());
+    const QString steamRoot = testutil::makeFixtureSteam(temp);
+    const QString sourceLibrary = temp.path() + QStringLiteral("/libraryA");
+    const QString destLibrary = temp.path() + QStringLiteral("/libraryB");
+    const MountTable mounts = MountTable::fromMounts({testutil::makeMount(temp.path())});
+    QString error;
+    SteamScan scan = scanSteam({steamRoot, InstallKind::Native}, mounts, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    MoveOptions options;
+    options.allowNtfsNative = true;
+    options.moveShaderCache = false;
+    options.moveWorkshop = false;
+    MovePlan plan = MovePlanner::plan(scan, 12345, destLibrary, options, mounts, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QVERIFY2(!plan.hasBlocker(), qPrintable(plan.blockers().isEmpty()
+                                                ? QStringLiteral("no blocker")
+                                                : plan.blockers().first().detail));
+    const Component *game = plan.findComponent(ComponentKind::Game);
+    QVERIFY(game);
+
+    quint64 lastDone = 0;
+    quint64 lastTotal = 0;
+    int calls = 0;
+    MoveExecutor executor;
+    const MoveResult result = executor.execute(
+        plan, mounts, [&](const MoveProgress &progress) {
+            if (progress.phase != Phase::Verifying || progress.bytesTotal == 0)
+                return;
+            lastDone = progress.bytesDone;
+            lastTotal = progress.bytesTotal;
+            ++calls;
+        });
+    QVERIFY2(result.ok, qPrintable(result.error));
+    QVERIFY(calls > 0);
+    QCOMPARE(lastTotal, game->bytes * 2);
+    QCOMPARE(lastDone, lastTotal);
+}
 
 void MoverTest::verificationReportsProgress()
 {
