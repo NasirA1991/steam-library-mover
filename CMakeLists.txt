@@ -55,6 +55,8 @@ target_compile_options(steam-library-mover-cli PRIVATE -Wall -Wextra -Wpedantic)
 
 add_library(slm_gui STATIC
     src/gui/mainwindow.cpp
+    src/gui/reviewdialog.cpp
+    src/gui/reviewdialog.h
     src/gui/gamemodel.cpp
     src/gui/uiformat.cpp
     src/gui/theme.cpp
