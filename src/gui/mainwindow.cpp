@@ -67,6 +67,7 @@
 #include <QUrl>
 #include <QTableWidget>
 #include <QTextBrowser>
+#include <QThread>
 #include <QTimer>
 #include <QToolButton>
 #include <QToolBar>
@@ -152,6 +153,18 @@ MainWindow::~MainWindow()
     // QApplication can destroy the window without a closeEvent (for example on
     // session logout or app.quit()). Never let a QThread child be destroyed
     // while it is still running.
+    if (m_statusTimer)
+        m_statusTimer->stop();
+    if (m_processThread) {
+        m_processThread->wait();
+        delete m_processThread;
+        m_processThread = nullptr;
+    }
+    if (m_shutdownThread) {
+        m_shutdownThread->wait();
+        delete m_shutdownThread;
+        m_shutdownThread = nullptr;
+    }
     if (m_moveThread) {
         m_moveThread->cancel();
         m_moveThread->wait();
@@ -1431,11 +1444,36 @@ void MainWindow::updateSummary()
 
 void MainWindow::updateSteamBanner()
 {
-    if (m_scanInProgress || !m_scanThread.isNull())
+    if (m_scanInProgress || !m_scanThread.isNull() || m_processThread)
         return;
-    const slm::ProcessUsage usage = slm::inspectProcesses({}, {});
-    m_steamRunning = usage.steamRunning;
-    if (usage.steamRunning) {
+
+    // Scanning /proc can be slow on a busy desktop. Keep it off the GUI thread
+    // and skip a poll if the previous one is still running.
+    QPointer<MainWindow> self(this);
+    auto *thread = QThread::create([self]() {
+        if (!self)
+            return;
+        const slm::ProcessUsage usage = slm::inspectProcesses({}, {});
+        if (!self)
+            return;
+        QMetaObject::invokeMethod(self, [self, usage]() {
+            if (self)
+                self->applySteamStatus(usage.steamRunning);
+        }, Qt::QueuedConnection);
+    });
+    m_processThread = thread;
+    connect(thread, &QThread::finished, this, [this, thread]() {
+        if (m_processThread == thread)
+            m_processThread = nullptr;
+        thread->deleteLater();
+    });
+    thread->start();
+}
+
+void MainWindow::applySteamStatus(bool running)
+{
+    m_steamRunning = running;
+    if (running) {
         setBannerMessage(
             QStringLiteral("Steam is running. It must be completely closed before moving files. "
                            "Use “Quit Steam” and wait for it to exit."),
@@ -1592,8 +1630,7 @@ void MainWindow::reviewMove()
                                  QStringLiteral("No destination Steam library is available."));
         return;
     }
-    const slm::ProcessUsage usage = slm::inspectProcesses({}, {});
-    if (usage.steamRunning) {
+    if (m_steamRunning) {
         QMessageBox::warning(this, QStringLiteral("Steam is running"),
                              QStringLiteral("Quit Steam completely before moving games."));
         updateSteamBanner();
@@ -2488,8 +2525,7 @@ void MainWindow::quitSteam()
                                  QStringLiteral("Do not start or stop Steam while a move queue is running."));
         return;
     }
-    const slm::ProcessUsage usage = slm::inspectProcesses({}, {});
-    if (!usage.steamRunning) {
+    if (!m_steamRunning) {
         QMessageBox::information(this, QStringLiteral("Steam is not running"),
                                  QStringLiteral("Steam is already closed."));
         updateSteamBanner();
@@ -2500,14 +2536,37 @@ void MainWindow::quitSteam()
         != QMessageBox::Yes) {
         return;
     }
-    QApplication::setOverrideCursor(Qt::WaitCursor);
-    QString error;
-    const bool ok = slm::requestSteamShutdown(m_scan.root.kind, &error);
-    QApplication::restoreOverrideCursor();
-    if (!ok) {
-        QMessageBox::warning(this, QStringLiteral("Could not quit Steam"), error);
-    }
-    updateSteamBanner();
+    if (m_shutdownThread)
+        return;
+
+    auto *progress = new QProgressDialog(QStringLiteral("Asking Steam to shut down…"), QString(),
+                                         0, 0, this);
+    progress->setWindowTitle(QStringLiteral("Steam Library Mover"));
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setCancelButton(nullptr);
+    progress->setMinimumDuration(0);
+    progress->show();
+    m_quitSteamAction->setEnabled(false);
+
+    const slm::InstallKind kind = m_scan.root.kind;
+    auto result = std::make_shared<QPair<bool, QString>>();
+    auto *thread = QThread::create([kind, result]() {
+        QString error;
+        result->first = slm::requestSteamShutdown(kind, &error);
+        result->second = error;
+    });
+    m_shutdownThread = thread;
+    connect(thread, &QThread::finished, this, [this, thread, result, progress]() {
+        if (m_shutdownThread == thread)
+            m_shutdownThread = nullptr;
+        progress->close();
+        progress->deleteLater();
+        if (!result->first)
+            QMessageBox::warning(this, QStringLiteral("Could not quit Steam"), result->second);
+        updateSteamBanner();
+        thread->deleteLater();
+    });
+    thread->start();
 }
 
 void MainWindow::showLibraryHealth()
@@ -2890,7 +2949,7 @@ void MainWindow::showDoctor()
             QLineEdit::Normal, slm::NtfsDoctor::defaultCompatDataTarget(m_scan));
         if (target.isEmpty())
             return;
-        if (slm::inspectProcesses({}, {}).steamRunning) {
+        if (m_steamRunning) {
             QMessageBox::warning(&dialog, QStringLiteral("Steam is running"),
                                  QStringLiteral("Quit Steam before changing the library configuration."));
             return;

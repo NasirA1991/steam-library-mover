@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/doctor.h"
+#include "core/process_check.h"
 #include "core/library.h"
 #include "core/mountinfo.h"
 
@@ -41,6 +42,9 @@ void DoctorTest::initTestCase()
 {
     if (::geteuid() == 0)
         QSKIP("Doctor write tests must run as a normal user");
+    slm::setProcessInspectorForTesting([](const QStringList &, const QStringList &) {
+        return slm::ProcessUsage{};
+    });
 }
 
 void DoctorTest::createsMissingSymlink()

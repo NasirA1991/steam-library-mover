@@ -13,6 +13,8 @@
 - A machine-wide advisory lock now prevents the GUI and CLI (including different users) from
   starting overlapping operations. Steam, game and Proton/Wine processes are also polled during
   copy and verification; if one starts, the move stops before commit and can be resumed.
+- Process polling and the graceful Steam shutdown request now run off the GUI thread, so the
+  window stays responsive while Steam exits.
 
 ## 0.1.8 — 2026-11-11
 

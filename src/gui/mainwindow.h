@@ -20,6 +20,7 @@ class QLineEdit;
 class QProgressDialog;
 class QPushButton;
 class QTimer;
+class QThread;
 class QToolBar;
 class QToolButton;
 class GameTableModel;
@@ -66,6 +67,7 @@ private slots:
     void showSettings();
     void showAbout();
     void updateSteamBanner();
+    void applySteamStatus(bool running);
     void refreshTheme();
     void showGameContextMenu(const QPoint &pos);
     void onHeaderClicked(int section);
@@ -133,6 +135,8 @@ private:
     QAction *m_showToolsAction = nullptr;
     QToolBar *m_toolbar = nullptr;
     QTimer *m_statusTimer = nullptr;
+    QThread *m_processThread = nullptr;
+    QThread *m_shutdownThread = nullptr;
 
     QVector<slm::SteamRoot> m_roots;
     slm::SteamScan m_scan;

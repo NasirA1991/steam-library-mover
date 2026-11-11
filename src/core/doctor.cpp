@@ -4,6 +4,7 @@
 #include "fileops.h"
 #include "library.h"
 #include "mountinfo.h"
+#include "process_check.h"
 
 #include <QDir>
 #include <QFile>
@@ -97,6 +98,11 @@ bool NtfsDoctor::fixCompatData(const Library &library, const QString &targetPath
     if (::geteuid() == 0) {
         if (error)
             *error = QStringLiteral("Refusing to modify Steam data as root; run as the library owner.");
+        return false;
+    }
+    if (inspectProcesses({}, {}).steamRunning) {
+        if (error)
+            *error = QStringLiteral("Quit Steam before changing the library configuration");
         return false;
     }
     const QString compatPath = library.compatdataPath();
