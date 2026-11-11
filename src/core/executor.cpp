@@ -22,6 +22,7 @@
 #include <cerrno>
 #include <cstring>
 #include <limits>
+#include <mutex>
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -333,6 +334,7 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
     // and verifying; a mid-copy process must stop the operation before commit.
     QElapsedTimer processClock;
     processClock.start();
+    std::mutex monitorMutex;
     QString monitorError;
     bool monitorTriggered = false;
     const auto checkProcesses = [&]() -> bool {
@@ -359,6 +361,7 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
         return false;
     };
     const auto abortRequested = [&]() -> bool {
+        std::lock_guard<std::mutex> lock(monitorMutex);
         if (monitorTriggered)
             return true;
         if (cancelled && cancelled())
@@ -367,6 +370,7 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
         return monitorTriggered;
     };
     const auto abortResult = [&]() -> MoveResult {
+        std::lock_guard<std::mutex> lock(monitorMutex);
         if (monitorTriggered)
             return fail(monitorError);
         return cancelMove();
@@ -616,10 +620,14 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
                                            : QStringLiteral("Removing source payload"));
     QStringList cleanupErrors;
     QStringList backupPaths;
-    bool cleanupAllowed = checkProcesses();
-    if (!cleanupAllowed) {
-        cleanupErrors.append(monitorError);
-        logger.write(QStringLiteral("Cleanup skipped: %1").arg(monitorError));
+    bool cleanupAllowed = false;
+    {
+        std::lock_guard<std::mutex> lock(monitorMutex);
+        cleanupAllowed = checkProcesses();
+        if (!cleanupAllowed) {
+            cleanupErrors.append(monitorError);
+            logger.write(QStringLiteral("Cleanup skipped: %1").arg(monitorError));
+        }
     }
     for (const Component &component : plan.components) {
         if (!cleanupAllowed)
@@ -632,7 +640,10 @@ MoveResult MoveExecutor::execute(const MovePlan &plan, const MountTable &mounts,
             cleanupErrors.append(QStringLiteral("%1: %2").arg(component.source, cleanupError));
             logger.write(QStringLiteral("Cleanup warning: %1").arg(cleanupError));
         }
-        cleanupAllowed = checkProcesses();
+        {
+            std::lock_guard<std::mutex> lock(monitorMutex);
+            cleanupAllowed = checkProcesses();
+        }
     }
 
     journal.insert(QStringLiteral("backupPaths"), QJsonArray::fromStringList(backupPaths));

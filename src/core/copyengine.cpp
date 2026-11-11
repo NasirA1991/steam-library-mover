@@ -35,6 +35,18 @@ namespace {
 constexpr qint64 kBufferSize = 4 * 1024 * 1024;
 constexpr qint64 kProgressIntervalMs = 50;
 
+void ensureHashInitialized()
+{
+    // Qt may back SHA-256 with OpenSSL. OpenSSL's provider initialization is
+    // lazy; doing the first digest here avoids a first-use race when several
+    // copy or verification workers start at once.
+    static std::once_flag once;
+    std::call_once(once, [] {
+        (void)QCryptographicHash::hash(QByteArrayLiteral("steam-library-mover"),
+                                       QCryptographicHash::Sha256);
+    });
+}
+
 QString errnoString()
 {
     return QString::fromLocal8Bit(::strerror(errno));
@@ -48,6 +60,16 @@ bool waitWhilePaused(const CopyEngine::CancelFn &cancelled, const CopyEngine::Pa
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     return true;
+}
+
+QCryptographicHash makeSha256()
+{
+    // QCryptographicHash may fetch an OpenSSL provider when constructed.
+    // Keep the lazy first fetch serialized; the digest itself still runs
+    // concurrently in copy and verification workers.
+    static std::mutex mutex;
+    std::lock_guard<std::mutex> lock(mutex);
+    return QCryptographicHash(QCryptographicHash::Sha256);
 }
 
 void addZeroBytes(QCryptographicHash *hash, quint64 count)
@@ -246,7 +268,8 @@ bool copyRegularFile(const QString &source, const QString &destination, const Fi
     (void)::posix_fadvise(input, 0, 0, POSIX_FADV_SEQUENTIAL);
     const QString temporary = QFileInfo(destination).absolutePath() + QStringLiteral("/.slm-part-")
         + QString::number(::getpid()) + QLatin1Char('-')
-        + QString::number(static_cast<qulonglong>(QDateTime::currentMSecsSinceEpoch()));
+        + QString::number(static_cast<qulonglong>(QDateTime::currentMSecsSinceEpoch()))
+        + QLatin1Char('-') + fsutil::uniqueSuffix();
     const QByteArray temporaryName = QFile::encodeName(temporary);
     const int output = ::open(temporaryName.constData(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
     if (output < 0) {
@@ -258,7 +281,7 @@ bool copyRegularFile(const QString &source, const QString &destination, const Fi
 
     (void)::posix_fadvise(output, 0, 0, POSIX_FADV_SEQUENTIAL);
 
-    QCryptographicHash sourceHash(QCryptographicHash::Sha256);
+    QCryptographicHash sourceHash = makeSha256();
     const bool wantHash = hashOut != nullptr;
     if (hashOut)
         *hashOut = CopyEngine::FileHash{};
@@ -488,7 +511,7 @@ bool hashFile(const QString &path, QByteArray *result, QString *error,
             *error = QStringLiteral("Cannot read %1: %2").arg(path, file.errorString());
         return false;
     }
-    QCryptographicHash hash(QCryptographicHash::Sha256);
+    QCryptographicHash hash = makeSha256();
     while (!file.atEnd()) {
         if (cancelled && cancelled()) {
             if (error)
@@ -706,6 +729,7 @@ bool CopyEngine::copyTree(const QString &source, const QString &destination,
                           qint64 *bytesCopiedOut, QString *error, const PauseFn &paused,
                           HashLookup *sourceHashes)
 {
+    ensureHashInitialized();
     if (sourceHashes)
         sourceHashes->clear();
     FileTree tree = FileTree::scan(source);
@@ -734,7 +758,16 @@ bool CopyEngine::copyTree(const QString &source, const QString &destination,
     rootEntry.mtimeNsec = sourceRoot.st_mtim.tv_nsec;
     directories.append({destination, rootEntry});
 
+    struct CopyJob
+    {
+        QString sourcePath;
+        QString destinationPath;
+        const FileEntry *entry = nullptr;
+    };
+
     QHash<QString, QString> hardLinks;
+    QVector<CopyJob> copyJobs;
+    qint64 copyJobBytes = 0;
     qint64 bytesCopied = 0;
     bool ok = true;
 
@@ -823,8 +856,14 @@ bool CopyEngine::copyTree(const QString &source, const QString &destination,
                 break;
             }
 
+            if (entry.linkCount <= 1) {
+                copyJobs.append({source + QLatin1Char('/') + entry.relativePath, destPath, &entry});
+                copyJobBytes += static_cast<qint64>(entry.size);
+                break;
+            }
+
             const QString inodeKey = QStringLiteral("%1:%2").arg(entry.device).arg(entry.inode);
-            if (entry.linkCount > 1 && hardLinks.contains(inodeKey)) {
+            if (hardLinks.contains(inodeKey)) {
                 const QString existing = hardLinks.value(inodeKey);
                 if (lstatPath(destPath, &st) && S_ISDIR(st.st_mode)) {
                     if (error)
@@ -878,6 +917,118 @@ bool CopyEngine::copyTree(const QString &source, const QString &destination,
             break;
     }
 
+    if (ok && !copyJobs.isEmpty()) {
+        const unsigned hardwareThreads = std::thread::hardware_concurrency();
+        const unsigned workerCount = (copyJobs.size() >= 4
+                                      && copyJobBytes >= 8 * 1024 * 1024
+                                      && hardwareThreads > 1)
+            ? std::min(4u, hardwareThreads)
+            : 1u;
+
+        if (workerCount <= 1) {
+            for (const CopyJob &job : copyJobs) {
+                FileHash sourceHash;
+                if (!copyRegularFile(job.sourcePath, job.destinationPath, *job.entry, progress,
+                                     &bytesCopied, cancelled, paused, copyBuffer, error,
+                                     sourceHashes ? &sourceHash : nullptr)) {
+                    ok = false;
+                    break;
+                }
+                if (sourceHashes && !sourceHash.sha256.isEmpty())
+                    sourceHashes->insert(job.entry->relativePath, sourceHash);
+            }
+        } else {
+            struct ParallelCopyState
+            {
+                std::atomic<quint64> bytes {0};
+                std::atomic_bool stop {false};
+                std::mutex mutex;
+                QElapsedTimer timer;
+                QString error;
+            };
+
+            ParallelCopyState state;
+            state.bytes.store(static_cast<quint64>(bytesCopied));
+            state.timer.start();
+
+            std::atomic<size_t> nextJob {0};
+            std::vector<FileHash> jobHashes(copyJobs.size());
+
+            auto worker = [&]() {
+                std::vector<char> workerBuffer(static_cast<size_t>(kBufferSize));
+                for (;;) {
+                    if (state.stop.load(std::memory_order_relaxed))
+                        return;
+                    const size_t index = nextJob.fetch_add(1, std::memory_order_relaxed);
+                    if (index >= static_cast<size_t>(copyJobs.size()))
+                        return;
+                    const CopyJob &job = copyJobs.at(static_cast<int>(index));
+
+                    qint64 fileBytes = 0;
+                    quint64 lastReported = 0;
+                    auto fileProgress = [&](quint64 fileDone, const QString &path) {
+                        if (fileDone <= lastReported)
+                            return;
+                        const quint64 delta = fileDone - lastReported;
+                        lastReported = fileDone;
+                        std::lock_guard<std::mutex> lock(state.mutex);
+                        const quint64 total =
+                            state.bytes.fetch_add(delta, std::memory_order_relaxed) + delta;
+                        if (state.timer.elapsed() >= kProgressIntervalMs) {
+                            if (progress)
+                                progress(total, path);
+                            state.timer.restart();
+                        }
+                    };
+                    auto cancel = [&]() {
+                        return state.stop.load(std::memory_order_relaxed)
+                            || (cancelled && cancelled());
+                    };
+
+                    FileHash hash;
+                    QString jobError;
+                    if (!copyRegularFile(job.sourcePath, job.destinationPath, *job.entry,
+                                         fileProgress, &fileBytes, cancel, paused, workerBuffer,
+                                         &jobError, sourceHashes ? &hash : nullptr)) {
+                        std::lock_guard<std::mutex> lock(state.mutex);
+                        if (state.error.isEmpty()) {
+                            state.error = jobError.isEmpty() ? QStringLiteral("Copy failed")
+                                                             : jobError;
+                        }
+                        state.stop.store(true, std::memory_order_relaxed);
+                        return;
+                    }
+                    jobHashes[index] = hash;
+                }
+            };
+
+            std::vector<std::thread> threads;
+            threads.reserve(workerCount);
+            for (unsigned i = 0; i < workerCount; ++i)
+                threads.emplace_back(worker);
+            for (std::thread &thread : threads)
+                thread.join();
+
+            if (state.stop.load() && state.error.isEmpty())
+                state.error = QStringLiteral("Cancelled by user");
+            if (!state.error.isEmpty()) {
+                if (error)
+                    *error = state.error;
+                ok = false;
+            } else {
+                bytesCopied = static_cast<qint64>(state.bytes.load());
+                if (sourceHashes) {
+                    for (int i = 0; i < copyJobs.size(); ++i) {
+                        if (!jobHashes[static_cast<size_t>(i)].sha256.isEmpty()) {
+                            sourceHashes->insert(copyJobs.at(i).entry->relativePath,
+                                                 jobHashes[static_cast<size_t>(i)]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if (ok) {
         for (int i = directories.size() - 1; i >= 0; --i) {
             const auto &[path, entry] = directories.at(i);
@@ -896,6 +1047,7 @@ bool CopyEngine::verifyTree(const QString &source, const QString &destination, b
                             QString *error, const CancelFn &cancelled, const ProgressFn &progress,
                             const HashLookup *sourceHashes, VerifyStats *stats)
 {
+    ensureHashInitialized();
     if (stats)
         *stats = VerifyStats{};
     if (cancelled && cancelled()) {

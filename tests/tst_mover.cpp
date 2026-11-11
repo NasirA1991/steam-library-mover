@@ -38,6 +38,9 @@ private slots:
     void fullVerificationRejectsSameSizeCorruption();
     void verificationReportsProgress();
     void parallelVerificationChecksEveryFile();
+    void parallelCopyPreservesEveryFile();
+    void parallelCopyStopsOnError();
+    void copyPreservesHardLinks();
     void executorReportsVerificationProgress();
     void sparseFileCopyPreservesHoles();
     void shaderCacheDestinationExistsIsWarning();
@@ -257,6 +260,112 @@ void MoverTest::fullVerificationRejectsSameSizeCorruption()
     QVERIFY(MoveOptions{}.fullVerify);
 }
 
+
+void MoverTest::parallelCopyPreservesEveryFile()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    const QString source = temp.path() + QStringLiteral("/source");
+    const QString destination = temp.path() + QStringLiteral("/destination");
+    QVERIFY(QDir().mkpath(source));
+
+    constexpr int fileCount = 8;
+    constexpr int fileSize = 1024 * 1024;
+    quint64 totalBytes = 0;
+    for (int i = 0; i < fileCount; ++i) {
+        const QByteArray payload(fileSize, static_cast<char>('A' + i));
+        QVERIFY(testutil::writeFile(source + QStringLiteral("/part-%1.bin").arg(i), payload));
+        totalBytes += static_cast<quint64>(payload.size());
+    }
+
+    QString error;
+    CopyEngine::HashLookup hashes;
+    qint64 bytesCopied = 0;
+    quint64 lastBytes = 0;
+    int calls = 0;
+    bool monotonic = true;
+    QVERIFY2(CopyEngine::copyTree(
+                 source, destination,
+                 [&](quint64 bytes, const QString &) {
+                     monotonic = monotonic && bytes >= lastBytes;
+                     lastBytes = bytes;
+                     ++calls;
+                 },
+                 {}, &bytesCopied, &error, {}, &hashes),
+             qPrintable(error));
+    QVERIFY(calls > 0);
+    QVERIFY(monotonic);
+    QCOMPARE(lastBytes, totalBytes);
+    QCOMPARE(static_cast<quint64>(bytesCopied), totalBytes);
+    QCOMPARE(hashes.size(), fileCount);
+
+    for (int i = 0; i < fileCount; ++i) {
+        const QString path = destination + QStringLiteral("/part-%1.bin").arg(i);
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), QByteArray(fileSize, static_cast<char>('A' + i)));
+    }
+
+    CopyEngine::VerifyStats stats;
+    QVERIFY2(CopyEngine::verifyTree(source, destination, true, &error, {}, {}, &hashes, &stats),
+             qPrintable(error));
+    QCOMPARE(stats.cachedFiles, fileCount);
+    QCOMPARE(stats.sourceFilesHashed, 0);
+}
+
+void MoverTest::parallelCopyStopsOnError()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    const QString source = temp.path() + QStringLiteral("/source");
+    const QString destination = temp.path() + QStringLiteral("/destination");
+    QVERIFY(QDir().mkpath(source));
+
+    constexpr int fileCount = 8;
+    constexpr int fileSize = 1024 * 1024;
+    for (int i = 0; i < fileCount; ++i) {
+        QVERIFY(testutil::writeFile(source + QStringLiteral("/part-%1.bin").arg(i),
+                                    QByteArray(fileSize, static_cast<char>('A' + i))));
+    }
+    const QString blocked = source + QStringLiteral("/part-3.bin");
+    QVERIFY(QFile::setPermissions(blocked, QFileDevice::Permissions()));
+
+    QString error;
+    const bool copied = CopyEngine::copyTree(source, destination, {}, {}, nullptr, &error);
+    QFile::setPermissions(blocked, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    QVERIFY(!copied);
+    QVERIFY(!error.isEmpty());
+}
+
+void MoverTest::copyPreservesHardLinks()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    const QString source = temp.path() + QStringLiteral("/source");
+    const QString destination = temp.path() + QStringLiteral("/destination");
+    QVERIFY(QDir().mkpath(source));
+
+    const QByteArray payload(1024 * 1024, 'H');
+    QVERIFY(testutil::writeFile(source + QStringLiteral("/original.bin"), payload));
+    QCOMPARE(::link(QFile::encodeName(source + QStringLiteral("/original.bin")).constData(),
+                    QFile::encodeName(source + QStringLiteral("/linked.bin")).constData()),
+             0);
+
+    QString error;
+    QVERIFY2(CopyEngine::copyTree(source, destination, {}, {}, nullptr, &error),
+             qPrintable(error));
+    struct stat original {};
+    struct stat linked {};
+    QCOMPARE(::stat(QFile::encodeName(destination + QStringLiteral("/original.bin")).constData(),
+                    &original),
+             0);
+    QCOMPARE(::stat(QFile::encodeName(destination + QStringLiteral("/linked.bin")).constData(),
+                    &linked),
+             0);
+    QCOMPARE(original.st_dev, linked.st_dev);
+    QCOMPARE(original.st_ino, linked.st_ino);
+    QVERIFY2(CopyEngine::verifyTree(source, destination, true, &error), qPrintable(error));
+}
 
 void MoverTest::executorReportsVerificationProgress()
 {
