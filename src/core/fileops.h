@@ -12,6 +12,8 @@ bool writeFileAtomic(const QString &path, const QByteArray &data, int mode, QStr
 bool fsyncDir(const QString &dir, QString *error = nullptr);
 bool syncFilesystem(const QString &path, QString *error = nullptr);
 bool ensureDir(const QString &path, QString *error = nullptr);
+// Recursively removes path without following symlinks. Traversal is anchored at
+// directory descriptors and refuses to cross a filesystem boundary.
 bool removeTree(const QString &path, QString *error = nullptr);
 bool isSameFilesystem(const QString &a, const QString &b);
 QString uniqueSuffix();

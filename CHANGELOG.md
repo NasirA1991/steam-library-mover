@@ -8,6 +8,8 @@
   is marked failed.
 - Resume refuses changed source manifests or library databases, and validates journaled destination
   paths against the destination library.
+- Recursive cleanup is now descriptor-relative, does not follow symlinks, and refuses to cross a
+  filesystem boundary, closing a path-swap race during source cleanup and rollback.
 
 ## 0.1.8 — 2026-11-11
 

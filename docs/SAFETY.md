@@ -129,8 +129,9 @@ batch requirement (including the safety margin) before queueing.
 - Top-level game directories must be real directories, not symlinks.
 - Symlinks are unlinked, never followed.
 - Source payloads are renamed to a hidden trash name and then removed recursively without traversal
-  through symlinks. If the quarantine rename fails, cleanup stops with a warning instead of deleting
-  in place.
+  through symlinks. Deletion is anchored at directory descriptors, opens children with `O_NOFOLLOW`,
+  and refuses to cross a mount boundary. If the quarantine rename fails, cleanup stops with a warning
+  instead of deleting in place.
 - The compatdata library symlink itself is never removed.
 
 ## Known limitations
