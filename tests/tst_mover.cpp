@@ -49,6 +49,7 @@ private slots:
     void ntfsInvalidNameBlocks();
     void ntfsAcknowledged();
     void unsupportedFileTypeBlocks();
+    void pruneFinishedKeepsRecoverableOperations();
 };
 
 void MoverTest::initTestCase()
@@ -185,6 +186,43 @@ void MoverTest::doneWithWarningsIsFinished()
     QVERIFY(MoveExecutor::unfinishedOperations().isEmpty());
 }
 
+
+void MoverTest::pruneFinishedKeepsRecoverableOperations()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    qputenv("SLM_STATE_DIR", (temp.path() + QStringLiteral("/state")).toUtf8());
+    QString error;
+    QVERIFY2(JournalStore::ensure(&error), qPrintable(error));
+
+    const auto write = [&](const QString &opId, const QString &state, const QString &updated) {
+        QJsonObject journal;
+        journal.insert(QStringLiteral("opId"), opId);
+        journal.insert(QStringLiteral("state"), state);
+        journal.insert(QStringLiteral("updatedAt"), updated);
+        return JournalStore::writeObject(JournalStore::journalPath(opId), journal, &error);
+    };
+    for (int i = 0; i < 25; ++i) {
+        const QString id = QStringLiteral("finished-%1").arg(i, 2, 10, QLatin1Char('0'));
+        QVERIFY2(write(id, QStringLiteral("done"),
+                       QStringLiteral("2026-11-11T12:%1:00Z").arg(i, 2, 10, QLatin1Char('0'))),
+                 qPrintable(error));
+    }
+    QVERIFY2(write(QStringLiteral("unfinished-op"), QStringLiteral("failed"),
+                   QStringLiteral("2026-11-11T11:00:00Z")), qPrintable(error));
+
+    QCOMPARE(JournalStore::pruneFinished(5), 20);
+    const QList<QJsonObject> remaining = JournalStore::listOperations();
+    QCOMPARE(remaining.size(), 6);
+    int unfinished = 0;
+    for (const QJsonObject &journal : remaining) {
+        if (journal.value(QStringLiteral("state")).toString() == QStringLiteral("failed"))
+            ++unfinished;
+    }
+    QCOMPARE(unfinished, 1);
+    QVERIFY(QFileInfo::exists(JournalStore::journalPath(QStringLiteral("finished-24"))));
+    QVERIFY(!QFileInfo::exists(JournalStore::journalPath(QStringLiteral("finished-00"))));
+}
 
 void MoverTest::fullVerificationRejectsSameSizeCorruption()
 {

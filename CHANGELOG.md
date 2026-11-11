@@ -15,6 +15,8 @@
   copy and verification; if one starts, the move stops before commit and can be resumed.
 - Process polling and the graceful Steam shutdown request now run off the GUI thread, so the
   window stays responsive while Steam exits.
+- Journals for finished moves are pruned to the 20 most recent after a move; unfinished,
+  failed and cancelled operations are retained until you recover or forget them.
 
 ## 0.1.8 — 2026-11-11
 

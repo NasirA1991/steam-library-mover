@@ -261,6 +261,7 @@ int commandPlan(const QCommandLineParser &parser, const SteamRoot &root, const M
         return 3;
     }
     human << "Moved successfully. Start Steam to refresh the library.\n";
+    JournalStore::pruneFinished(20);
     for (const QString &backup : result.backupPaths)
         human << "Source backup: " << backup << '\n';
     for (const QString &warning : result.cleanupErrors)

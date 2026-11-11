@@ -2437,6 +2437,7 @@ void MainWindow::finishMoveQueue(const QString &stopReason)
         m_moveProgress = nullptr;
     }
     m_sleepInhibitor.reset();
+    slm::JournalStore::pruneFinished(20);
 
     int succeeded = 0;
     int failed = 0;

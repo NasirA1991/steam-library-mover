@@ -70,7 +70,9 @@ Each operation writes to `~/.local/state/steam-library-mover/operations/<opId>/`
 - `backup/appmanifest_<appid>.acf` — original manifest.
 
 Journal and log files are mode 0600. They contain local paths but no Steam credentials or
-environment data.
+environment data. After a move finishes, operations in a final state (`done`,
+`done-with-warnings`, `rolled-back`) are pruned to the 20 most recent. Unfinished, failed and
+cancelled operations are kept until Recovery resumes, rolls back or forgets them.
 
 Rollback validates the journal operation id, destination paths and backup path, restores the VDF
 backup first, and only then removes destination components and the destination manifest. It does

@@ -24,6 +24,9 @@ bool writeObject(const QString &path, const QJsonObject &object, QString *error 
 QJsonObject readObject(const QString &path, QString *error = nullptr);
 QList<QJsonObject> listOperations();
 bool removeOperation(const QString &opId, QString *error = nullptr);
+// Deletes the oldest finished operations, keeping the most recent `keep`.
+// Unfinished/failed/cancelled journals are never removed automatically.
+int pruneFinished(int keep = 20);
 } // namespace JournalStore
 
 class Logger

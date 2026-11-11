@@ -14,6 +14,8 @@
 #include <QStandardPaths>
 #include <QUuid>
 
+#include <algorithm>
+
 namespace slm {
 
 namespace JournalStore {
@@ -122,6 +124,40 @@ bool removeOperation(const QString &opId, QString *error)
         return false;
     }
     return fsutil::removeTree(operationDir(opId), error);
+}
+
+int pruneFinished(int keep)
+{
+    if (keep < 0)
+        keep = 0;
+    struct Finished
+    {
+        QString opId;
+        QString updatedAt;
+    };
+    QList<Finished> finished;
+    for (const QJsonObject &journal : listOperations()) {
+        const QString state = journal.value(QStringLiteral("state")).toString();
+        if (state != QStringLiteral("done") && state != QStringLiteral("done-with-warnings")
+            && state != QStringLiteral("rolled-back")) {
+            continue;
+        }
+        const QString opId = journal.value(QStringLiteral("opId")).toString();
+        if (!isValidOperationId(opId))
+            continue;
+        finished.append({opId, journal.value(QStringLiteral("updatedAt")).toString()});
+    }
+    std::sort(finished.begin(), finished.end(), [](const Finished &a, const Finished &b) {
+        if (a.updatedAt == b.updatedAt)
+            return a.opId > b.opId;
+        return a.updatedAt > b.updatedAt;
+    });
+    int removed = 0;
+    for (int i = keep; i < finished.size(); ++i) {
+        if (removeOperation(finished.at(i).opId))
+            ++removed;
+    }
+    return removed;
 }
 
 } // namespace JournalStore

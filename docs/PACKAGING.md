@@ -18,6 +18,8 @@ Release artifacts are built by GitHub Actions when a `v*` tag is pushed. The wor
 - `steam-library-mover-*.pkg.tar.zst` — Arch package built in an Arch container.
 - `steam-library-mover-*.tar.gz` — source archive generated from the tag.
 - `SHA256SUMS` — checksums for the release files.
+- GitHub build-provenance attestations for the AppImage, Arch package, source archive and
+  checksums.
 
 The current release is published as the latest GitHub release so the README `/releases/latest` AppImage link works. This is separate from the project maturity: `0.x` is still alpha and the README says so.
 
@@ -64,6 +66,25 @@ namcap *.pkg.tar.zst
 AUR publishing is automated by GitHub Actions using the `AUR_SSH_PRIVATE_KEY` and
 `AUR_KNOWN_HOSTS` repository secrets.
 
+## Supply chain
+
+Every third-party GitHub Action is pinned to a full commit SHA, with its release tag in a comment.
+The AppImage packaging tools are pinned to tagged releases and verified against committed SHA-256
+checksums before use. No `continuous` download is used during a release.
+
+Release artifacts carry GitHub build-provenance attestations. Verify a downloaded file after
+checking `SHA256SUMS`:
+
+```bash
+sha256sum -c SHA256SUMS
+gh attestation verify Steam_Library_Mover-x86_64.AppImage \
+  --repo NasirA1991/steam-library-mover
+```
+
+Attestations prove which repository workflow produced an artifact; they are not a substitute for
+checking the checksum or reviewing the source. The AUR recipe uses the tagged source tarball and
+its `sha256sums` entry.
+
 ## Flatpak (experimental Actions artifact)
 
 The Flatpak manifest remains in the repository for future work. GitHub Actions builds it from
@@ -100,5 +121,5 @@ Flathub submission also needs a tagged source (not `type: dir`), screenshots in 
 - [ ] Arch package installed and launched.
 - [ ] AUR recipe checksum regenerated and published by the AUR workflow.
 - [ ] Flatpak gate explicitly recorded; only an experimental Actions artifact is produced.
-- [ ] `SHA256SUMS` and release notes attached.
+- [ ] `SHA256SUMS`, build-provenance attestations and release notes attached.
 - [ ] No personal paths, tokens, build trees or screenshots containing private data are committed.
