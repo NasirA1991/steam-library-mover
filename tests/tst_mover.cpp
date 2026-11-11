@@ -21,6 +21,7 @@
 #include <QtTest>
 
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <QFile>
 
@@ -37,6 +38,7 @@ private slots:
     void fullVerificationRejectsSameSizeCorruption();
     void verificationReportsProgress();
     void executorReportsVerificationProgress();
+    void sparseFileCopyPreservesHoles();
     void shaderCacheDestinationExistsIsWarning();
     void rollbackRejectsUnsafeJournal();
     void prefixMoveToRealDirectory();
@@ -296,6 +298,54 @@ void MoverTest::executorReportsVerificationProgress()
     QVERIFY(calls > 0);
     QCOMPARE(lastTotal, game->bytes * 2);
     QCOMPARE(lastDone, lastTotal);
+}
+
+void MoverTest::sparseFileCopyPreservesHoles()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    const QString source = temp.path() + QStringLiteral("/source");
+    const QString destination = temp.path() + QStringLiteral("/destination");
+    QVERIFY(QDir().mkpath(source));
+
+    const QString sourceFile = source + QStringLiteral("/sparse.bin");
+    const int fd = ::open(QFile::encodeName(sourceFile).constData(),
+                          O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    QVERIFY(fd >= 0);
+    const QByteArray head(4096, 'H');
+    const QByteArray tail(4096, 'T');
+    auto writeAt = [&](const QByteArray &data, off_t offset) {
+        return ::pwrite(fd, data.constData(), static_cast<size_t>(data.size()), offset)
+            == data.size();
+    };
+    QVERIFY(writeAt(head, 0));
+    QVERIFY(writeAt(tail, 16 * 1024 * 1024));
+    constexpr quint64 sparseSize = 32ull * 1024 * 1024;
+    QCOMPARE(::ftruncate(fd, static_cast<off_t>(sparseSize)), 0);
+    QCOMPARE(::close(fd), 0);
+
+    struct stat sourceStat {};
+    QCOMPARE(::stat(QFile::encodeName(sourceFile).constData(), &sourceStat), 0);
+    if (static_cast<quint64>(sourceStat.st_blocks) * 512 >= sparseSize)
+        QSKIP("The test filesystem does not report sparse extents");
+
+    QString error;
+    QVERIFY2(CopyEngine::copyTree(source, destination, {}, {}, nullptr, &error), qPrintable(error));
+    const QString copied = destination + QStringLiteral("/sparse.bin");
+    QFile copiedFile(copied);
+    QVERIFY(copiedFile.open(QIODevice::ReadOnly));
+    QCOMPARE(static_cast<quint64>(copiedFile.size()), sparseSize);
+    QVERIFY(copiedFile.seek(0));
+    QCOMPARE(copiedFile.read(head.size()), head);
+    QVERIFY(copiedFile.seek(16 * 1024 * 1024));
+    QCOMPARE(copiedFile.read(tail.size()), tail);
+    copiedFile.close();
+
+    struct stat destStat {};
+    QCOMPARE(::stat(QFile::encodeName(copied).constData(), &destStat), 0);
+    QVERIFY2(static_cast<quint64>(destStat.st_blocks) * 512 < sparseSize,
+             "The destination lost the sparse holes");
+    QVERIFY2(CopyEngine::verifyTree(source, destination, true, &error), qPrintable(error));
 }
 
 void MoverTest::verificationReportsProgress()

@@ -97,6 +97,115 @@ bool applyTimesAndMode(const QString &path, const FileEntry &entry, bool symlink
     return true;
 }
 
+bool copySparseExtents(int input, int output, quint64 size, const FileEntry &entry,
+                        const CopyEngine::ProgressFn &progress, qint64 baseBytes,
+                        const CopyEngine::CancelFn &cancelled, const CopyEngine::PauseFn &paused,
+                        std::vector<char> &buffer, QString *error, bool *supported)
+{
+    *supported = false;
+    off_t position = 0;
+    while (position < static_cast<off_t>(size)) {
+        if (cancelled && cancelled()) {
+            if (error)
+                *error = QStringLiteral("Cancelled by user");
+            return false;
+        }
+        if (!waitWhilePaused(cancelled, paused)) {
+            if (error)
+                *error = QStringLiteral("Cancelled by user");
+            return false;
+        }
+
+        errno = 0;
+        const off_t data = ::lseek(input, position, SEEK_DATA);
+        if (data < 0) {
+            if (errno == ENXIO) {
+                *supported = true;
+                return true;
+            }
+            if (errno == EINVAL) {
+                // The source filesystem does not expose holes. Fall back to a
+                // normal sequential copy.
+                return false;
+            }
+            if (error)
+                *error = QStringLiteral("Cannot inspect sparse extents in %1: %2")
+                             .arg(entry.relativePath, errnoString());
+            return false;
+        }
+        if (data >= static_cast<off_t>(size)) {
+            *supported = true;
+            return true;
+        }
+
+        errno = 0;
+        off_t hole = ::lseek(input, data, SEEK_HOLE);
+        if (hole < 0) {
+            if (errno == EINVAL)
+                return false;
+            if (error)
+                *error = QStringLiteral("Cannot inspect sparse extents in %1: %2")
+                             .arg(entry.relativePath, errnoString());
+            return false;
+        }
+        if (hole > static_cast<off_t>(size))
+            hole = static_cast<off_t>(size);
+
+        off_t cursor = data;
+        while (cursor < hole) {
+            if (cancelled && cancelled()) {
+                if (error)
+                    *error = QStringLiteral("Cancelled by user");
+                return false;
+            }
+            if (!waitWhilePaused(cancelled, paused)) {
+                if (error)
+                    *error = QStringLiteral("Cancelled by user");
+                return false;
+            }
+            const size_t wanted = std::min(buffer.size(), static_cast<size_t>(hole - cursor));
+            const ssize_t read = ::pread(input, buffer.data(), wanted, cursor);
+            if (read < 0) {
+                if (errno == EINTR)
+                    continue;
+                if (error)
+                    *error = QStringLiteral("Cannot read %1: %2").arg(entry.relativePath, errnoString());
+                return false;
+            }
+            if (read == 0) {
+                if (error)
+                    *error = QStringLiteral("Unexpected end of file while copying %1")
+                                 .arg(entry.relativePath);
+                return false;
+            }
+
+            ssize_t written = 0;
+            while (written < read) {
+                const ssize_t result = ::pwrite(output, buffer.data() + written,
+                                                static_cast<size_t>(read - written),
+                                                cursor + written);
+                if (result < 0) {
+                    if (errno == EINTR)
+                        continue;
+                    if (error)
+                        *error = QStringLiteral("Cannot write %1: %2")
+                                     .arg(entry.relativePath, errnoString());
+                    return false;
+                }
+                written += result;
+            }
+            cursor += read;
+        }
+        position = hole;
+        *supported = true;
+        if (progress) {
+            progress(static_cast<quint64>(baseBytes + static_cast<qint64>(position)),
+                     entry.relativePath);
+        }
+    }
+    return true;
+}
+
 bool copyRegularFile(const QString &source, const QString &destination, const FileEntry &entry,
                      const CopyEngine::ProgressFn &progress, qint64 *bytesCopied,
                      const CopyEngine::CancelFn &cancelled, const CopyEngine::PauseFn &paused,
@@ -159,9 +268,39 @@ bool copyRegularFile(const QString &source, const QString &destination, const Fi
             *error = QStringLiteral("Cancelled by user");
     }
 
+    bool sparseCopied = false;
+    if (ok && !cloned) {
+        struct stat inputStat {};
+        if (::fstat(input, &inputStat) == 0 && S_ISREG(inputStat.st_mode)
+            && static_cast<quint64>(inputStat.st_size) == entry.size
+            && static_cast<quint64>(inputStat.st_blocks) * 512 < entry.size) {
+            const qint64 baseBytes = *bytesCopied;
+            bool supported = false;
+            const bool copied = copySparseExtents(input, output, entry.size, entry, progress,
+                                                  baseBytes, cancelled, paused, buffer, error,
+                                                  &supported);
+            if (copied && supported) {
+                if (::ftruncate(output, static_cast<off_t>(entry.size)) != 0) {
+                    if (error)
+                        *error = QStringLiteral("Cannot size sparse destination %1: %2")
+                                     .arg(temporary, errnoString());
+                    ok = false;
+                } else {
+                    *bytesCopied += static_cast<qint64>(entry.size);
+                    sparseCopied = true;
+                }
+            } else if (!supported && ok) {
+                // A filesystem may reject SEEK_DATA after the clone attempt.
+                // Remove any extents written before falling back to a normal copy.
+                (void)::ftruncate(output, 0);
+                (void)::lseek(output, 0, SEEK_SET);
+            }
+        }
+    }
+
     QElapsedTimer timer;
     timer.start();
-    while (ok && !cloned) {
+    while (ok && !cloned && !sparseCopied) {
         if (cancelled && cancelled()) {
             if (error)
                 *error = QStringLiteral("Cancelled by user");
