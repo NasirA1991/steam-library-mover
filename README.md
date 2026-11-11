@@ -39,7 +39,7 @@ It reviews the move first, refuses unsafe destinations, journals every operation
 source intact until the destination has been verified and the Steam manifest has been updated.
 The desktop app and CLI use the same move engine.
 
-**Current public release:** v0.1.9 (alpha). See the [release notes](docs/RELEASE_NOTES.md) and
+**Current public release:** v0.2.0 (alpha). See the [release notes](docs/RELEASE_NOTES.md) and
 [roadmap decisions](docs/ROADMAP.md).
 
 ## Installation
@@ -155,13 +155,17 @@ manifest has been updated. If something fails before that point, the source rema
 ### Safe game transfers
 
 - **Review before touching files** — see the source, destination, free space, payload size and every
-  blocker before a move starts.
+  blocker before a move starts. Uncheck individual games and re-run a fresh preflight from the same
+  review.
 - **Full SHA-256 verification by default** — quick mode is an explicit opt-out for speed and does not
   detect same-size corruption.
 - **Copy-on-write when available** — reflinks on Btrfs and reflink-enabled XFS make compatible copies
   fast, with a verified normal copy elsewhere.
 - **Batch transfers** — queue several games, pause/resume, cancel safely and optionally keep source
   backups.
+- **Faster verified copies** — independent files copy in parallel, source hashes are captured during
+  the copy and reused for destination-only verification when the file is unchanged, and sparse files
+  keep their holes where supported. Full verification remains the default.
 
 ### Proton and filesystem compatibility
 
@@ -219,8 +223,9 @@ See [docs/SAFETY.md](docs/SAFETY.md) for the transaction order, rollback rules a
   no one-click undo after a completed move.
 - Steam Library Mover does not create or register Steam libraries, adopt unregistered games, or
   modify cloud saves.
-- xattrs/ACLs and sparse extents are not preserved. Symlinks, modes and mtimes are preserved where
-  the destination supports them.
+- xattrs, ACLs and file capabilities are not preserved. Sparse holes are copied by data extent when
+  supported; unsupported filesystems fall back to a normal copy. Symlinks, modes and mtimes are
+  preserved where the destination supports them.
 - A Flatpak build is not currently offered. Snap Steam is detected but not supported for moves.
 
 ## NTFS libraries

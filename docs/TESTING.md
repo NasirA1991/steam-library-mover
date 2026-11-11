@@ -21,14 +21,14 @@ manifests and injectable mount tables. They do not need a writable real Steam li
 | `tst_fileops` | Descriptor-relative recursive deletion, symlink-swap resistance and file roots. |
 | `tst_instance_lock` | Machine-wide lock rejection and reuse after release. |
 | `tst_library` | `libraryfolders.vdf` loading, compatdata symlink resolution and app-map updates. |
-| `tst_mover` | End-to-end moves, prefixes, resume/repair, rollback, verification, pause/cancel, NTFS, keep-source, batch VDF and pruned journals. |
+| `tst_mover` | End-to-end moves, prefixes, resume/repair, rollback, copy-time hash verification, parallel/sparse copies, atomic finalization, pause/cancel, NTFS, keep-source, batch VDF and pruned journals. |
 | `tst_doctor` | Compatdata states, safe symlink setup, non-empty-directory refusal and idempotent targets. |
 | `tst_scancache` | Scan-cache round-trip and isolated cache directories. |
 | `tst_health` | Stale lock/temp/orphan detection and quarantine renames. |
 | `tst_theme` | Light/dark palette contrast. |
 | `tst_uiformat` | Drive names, home display, subtitles and full-path tooltips. |
 | `tst_artwork` | Local artwork, cache hits and disabled downloads. Live CDN fetching is a manual, network-dependent check. |
-| `tst_gui` | Offscreen scan, model, selection, review, batch queue, health dialog and transfer strip. |
+| `tst_gui` | Offscreen scan, model, selection, review selection/refresh, batch queue, health dialog and transfer strip. |
 
 The GUI tests set `QT_QPA_PLATFORM=offscreen` and use temporary `SLM_STATE_DIR`, `SLM_CACHE_DIR`
 and `XDG_CONFIG_HOME` paths. Process detection is injected in tests so a running host Steam client does

@@ -155,7 +155,7 @@ batch requirement (including the safety margin) before queueing.
 - If the destination already has a shader cache for the game, the existing cache is kept
   and the source cache is not copied; the source cache is left in the old library and can
   be removed manually. Steam regenerates shader caches safely.
-- xattrs/ACLs and sparse extents are not preserved; symlinks, modes and mtimes are.
+- xattrs, ACLs and file capabilities are not preserved. Sparse holes are copied by data extent when supported; unsupported filesystems fall back to a normal copy. Symlinks, modes and mtimes are preserved best-effort.
 - Flatpak builds cannot detect host Steam/Wine processes without a host-spawn permission; do not
   ship a Flatpak build without validating that path.
 - A network filesystem destination is refused; local block-backed filesystems only.

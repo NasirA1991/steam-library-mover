@@ -59,6 +59,11 @@
   </keywords>
 
   <releases>
+    <release version="0.2.0" date="2026-11-12">
+      <description>
+        <p>Speeds up transfer verification and copying: source hashes are captured during copy and reused for destination-only verification, files verify and copy concurrently where safe, sparse files keep their holes, and copy completion is atomic. The review dialog now supports per-game selection and fresh preflight checks, and the window remembers its layout.</p>
+      </description>
+    </release>
     <release version="0.1.9" date="2026-11-11">
       <description>
         <p>Adds resume and automatic repair for interrupted copies, descriptor-relative deletion, a machine-wide lock, mid-copy process monitoring, asynchronous Steam shutdown, journal retention, and pinned release supply-chain tooling.</p>

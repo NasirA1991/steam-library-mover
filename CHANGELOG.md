@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 — unreleased
+## 0.2.0 — 2026-11-12
 
 - The main window remembers its size and position across launches.
 - Sequential copy reads/writes use `posix_fadvise` to reduce readahead and keep writeback in

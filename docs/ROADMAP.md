@@ -4,7 +4,7 @@ Steam Library Mover is a public alpha project. The roadmap is a record of priori
 not a dated delivery schedule. Safety, data preservation and recoverability come before new
 convenience features.
 
-Current public release: **v0.1.9**. Shipped behavior is documented in the
+Current public release: **v0.2.0**. Shipped behavior is documented in the
 [release notes](RELEASE_NOTES.md) and [changelog](../CHANGELOG.md); this page describes what is
 being considered next and what the project deliberately does not do.
 
@@ -19,6 +19,11 @@ The following are implemented and supported in the current release:
 - Rollback while the source manifest still exists.
 - Machine-wide instance lock and mid-copy Steam/Proton/Wine process monitoring.
 - Full SHA-256 verification by default; quick verification as an explicit opt-out.
+- Copy-time source hashing with destination-only full verification when source metadata is unchanged.
+- Sparse-file preservation, bounded parallel copying and parallel verification, atomic file rename
+  completion and sequential-I/O advice.
+- Per-game selection and fresh preflight in the batch review; persistent window layout; verification
+  progress.
 - Batch moves, pause/resume, cancellation, keep-source backups and optional reflink copies.
 - Library Health scanning and quarantine of stale lock/temp files.
 - NTFS Doctor and shared `compatdata` symlink setup.
@@ -32,12 +37,8 @@ recovery guarantees and can be tested without risking a real library.
 
 ### Performance and copy efficiency
 
-- Hash during copy and reuse those hashes for destination-only verification, instead of reading both
-  trees again.
 - Per-file hashes stored in the journal for faster verification and reliable resume.
-- Bounded parallel copying and hashing, with deterministic progress and cancellation.
-- `copy_file_range` and `posix_fadvise` refinements.
-- Sparse-file preservation with `SEEK_HOLE`/`SEEK_DATA`.
+- `copy_file_range` fallback and further I/O advice tuning.
 - Cache per-filesystem-pair reflink support instead of retrying known-unsupported clones.
 - Reuse the planned file tree after cheap revalidation.
 
@@ -50,11 +51,10 @@ recovery guarantees and can be tested without risking a real library.
 
 ### Usability and maintainability
 
-- Split the main window into focused dialogs and a transfer-queue controller.
-- Complete settings and window-layout persistence.
-- Translation-ready strings and keyboard/accessibility review.
-- Clearer verification progress and recovery descriptions.
-- Per-game selection controls in the review dialog.
+- Continue splitting the main window into focused dialogs and a transfer-queue controller.
+- Complete settings persistence and review keyboard/accessibility behavior.
+- Translation-ready strings.
+- Clearer recovery descriptions.
 
 ## Deliberately deferred
 

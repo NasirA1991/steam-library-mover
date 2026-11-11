@@ -23,7 +23,7 @@ different move sequences. The core is the only layer that copies, deletes or rew
 | `library` | `libraryfolders.vdf` loading, compatdata inspection and atomic app-map edits. |
 | `filetree` | Recursive no-follow scan, sizes, hardlinks, Windows filename/case validation. |
 | `fileops` | Descriptor-relative, no-follow recursive deletion within one filesystem. |
-| `copyengine` | POSIX copy, per-file temporary output, progress, cancellation, reflink and verification. |
+| `copyengine` | POSIX copy, sparse and bounded-parallel file copies, copy-time source hashes, atomic rename, progress, cancellation, reflink and verification. |
 | `planner` | Build a move plan, validate blockers and compute free space per filesystem. |
 | `executor` | Journaled transaction, resume, backups, sync, manifest switch, VDF update and cleanup. |
 | `journal` | State/log/backup directories, atomic JSON writes, retention and operation listing. |
@@ -33,6 +33,7 @@ different move sequences. The core is the only layer that copies, deletes or rew
 | `health` | Read-only stale-state scan and same-filesystem `.slm-quarantine` renames. |
 | GUI artwork provider | Local Steam `librarycache` first, then optional cached CDN box art. |
 | GUI uiformat | Drive-name labels, compact subtitles and full-path tooltips. |
+| GUI review dialog | Per-game selection, blockers, NTFS acknowledgement, fresh preflight and accepted-plan options. |
 | GUI batch queue | Cumulative space reservations, sequential execution and VDF refresh. |
 | GUI metadata | Compat tool, last played/build ID and Proton/Native detection. |
 | GUI integrations | Sleep inhibitor, desktop notifications and Start Steam. |
@@ -102,12 +103,21 @@ and then fsyncs the parent directory. A backup is stored in the operation direct
 ## Copy protocol
 
 - Directories are created first, parent-first.
-- Each regular file is copied to a `.slm-part-*` temporary file in the destination directory and then
-  moved into place. A crash cannot leave a complete-looking partial file.
-- Symlinks are recreated as symlinks and never followed. Modes and mtimes are preserved best-effort.
-- Hardlinks inside the moved tree are recreated with `link()`.
-- Verification compares types, path sets, sizes and symlink targets. Full mode hashes every file.
-  Verification is a distinct transaction phase before the manifest switch.
+- Each regular file is copied to a uniquely named `.slm-part-*` temporary file in the destination
+  directory and then moved into place with `rename(2)`. A crash cannot leave a complete-looking
+  partial file, and replacing an existing file does not expose a missing-destination window.
+- Symlinks are recreated as symlinks and never followed. Modes and mtimes are preserved best-effort;
+  symlinks and hard links also use a temporary name plus atomic rename.
+- Hardlinks inside the moved tree are recreated with `link()`. Hardlink groups are copied
+  sequentially; independent files may use up to four copy workers on larger transfers.
+- Sparse files are copied by data extent using `SEEK_HOLE`/`SEEK_DATA` when supported, with a normal
+  copy fallback.
+- Normal and sparse copies compute a source SHA-256 while copying. Full verification reuses it only
+  after checking source size, timestamps, inode and ctime; otherwise it hashes both sides. Reflinks,
+  skipped files and hardlink duplicates have no copy-time hash and always fall back.
+- Verification compares types, path sets, sizes and symlink targets. Full mode hashes every file;
+  up to four verification workers hash independent files concurrently, with serialized, monotonic
+  progress.
 - `syncfs()` runs on every affected destination filesystem before the manifest switch.
 
 Deletion of source payloads is anchored at directory descriptors, opens children with `O_NOFOLLOW`,
