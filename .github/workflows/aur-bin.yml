@@ -26,7 +26,7 @@ jobs:
     steps:
       - name: Install packaging tools
         run: |
-          pacman -Syu --noconfirm --needed base-devel git pacman-contrib curl
+          pacman -Syu --noconfirm --needed base-devel git pacman-contrib curl openssh
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
