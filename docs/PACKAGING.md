@@ -51,7 +51,7 @@ The AUR has two packages:
 - `steam-library-mover` builds from the source tag.
 - `steam-library-mover-bin` installs the prebuilt Arch package from the GitHub release.
 
-The source package is prepared by `.github/workflows/aur.yml`. The binary package is prepared by `.github/workflows/aur-bin.yml` after the Release workflow succeeds; it downloads the matching `steam-library-mover-<version>-1-x86_64.pkg.tar.zst`, updates `packaging/aur-bin/PKGBUILD`, and pushes the generated recipe to the `steam-library-mover-bin` AUR repository. The two packages `provides`/`conflicts` `steam-library-mover`, so only one can be installed at a time.
+The source package is prepared by `.github/workflows/aur.yml`. The binary package is prepared by `.github/workflows/aur-bin.yml` after the Release workflow succeeds; it downloads the matching `steam-library-mover-<version>-1-x86_64.pkg.tar.zst`, updates `packaging/aur-bin/PKGBUILD`, and pushes the generated recipe to the `steam-library-mover-bin` AUR repository. `steam-library-mover-bin` provides and conflicts with `steam-library-mover`, so only one can be installed at a time.
 
 Recipes:
 
