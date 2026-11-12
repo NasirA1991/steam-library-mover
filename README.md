@@ -60,6 +60,10 @@ Install from the AUR with your preferred helper:
 
 Any other AUR helper works too: `<helper> -S steam-library-mover`.
 
+Prefer a prebuilt package? Install `steam-library-mover-bin` with the same helper. It installs the Arch
+package built by GitHub Actions, and `provides`/`conflicts` with the source package, so install only
+one of the two.
+
 ### AppImage
 
 Download the latest portable build:

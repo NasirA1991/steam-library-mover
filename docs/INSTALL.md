@@ -7,7 +7,8 @@ the [README installation section](../README.md#installation).
 
 | Method | Best for | Notes |
 | --- | --- | --- |
-| AUR package | Arch Linux, CachyOS, EndeavourOS | Recommended on Arch-based distributions; also installs the CLI |
+| AUR package | Arch Linux, CachyOS, EndeavourOS | Recommended on Arch-based distributions; builds from the tagged source and also installs the CLI |
+| AUR prebuilt package | Arch Linux, CachyOS, EndeavourOS | Installs the GitHub Actions-built Arch package; conflicts with the source package |
 | AppImage | Other distributions | Portable, x86_64, no system Qt installation required |
 | Source build | Development or unsupported distributions | Requires Qt 6.4+ and a C++20 compiler |
 | Flatpak | Not currently offered | Experimental CI artifact only; see [PACKAGING.md](PACKAGING.md#flatpak-experimental-actions-artifact) |
@@ -66,10 +67,21 @@ yay -S steam-library-mover
 The package installs the desktop application, `steam-library-mover-cli`, the desktop entry, icon,
 AppStream metadata and man page.
 
+If you prefer not to compile during installation, use the prebuilt package:
+
+```bash
+yay -S steam-library-mover-bin
+# or: paru -S steam-library-mover-bin
+```
+
+It installs the same payload from the GitHub release archive built by GitHub Actions. It
+`provides`/`conflicts` with `steam-library-mover`; remove one before installing the other.
+
 Uninstall with:
 
 ```bash
 sudo pacman -Rns steam-library-mover
+# or: sudo pacman -Rns steam-library-mover-bin
 ```
 
 ## AppImage

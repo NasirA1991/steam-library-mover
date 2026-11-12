@@ -46,10 +46,18 @@ on a clean KDE system and a non-KDE distribution. FUSE 2 is required unless usin
 
 ## AUR
 
+The AUR has two packages:
+
+- `steam-library-mover` builds from the source tag.
+- `steam-library-mover-bin` installs the prebuilt Arch package from the GitHub release.
+
+The source package is prepared by `.github/workflows/aur.yml`. The binary package is prepared by `.github/workflows/aur-bin.yml` after the Release workflow succeeds; it downloads the matching `steam-library-mover-<version>-1-x86_64.pkg.tar.zst`, updates `packaging/aur-bin/PKGBUILD`, and pushes the generated recipe to the `steam-library-mover-bin` AUR repository. The two packages `provides`/`conflicts` `steam-library-mover`, so only one can be installed at a time.
+
 Recipes:
 
 - [`packaging/aur/PKGBUILD`](../packaging/aur/PKGBUILD) — tagged source package.
 - [`packaging/aur/PKGBUILD-git`](../packaging/aur/PKGBUILD-git) — VCS package.
+- [`packaging/aur-bin/PKGBUILD`](../packaging/aur-bin/PKGBUILD) — prebuilt binary package.
 
 Maintainer: **Nasir A <evilleader91@gmail.com>**.
 

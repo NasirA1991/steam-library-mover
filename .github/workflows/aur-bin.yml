@@ -1,0 +1,95 @@
+name: AUR binary publish
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish as steam-library-mover-bin
+        required: true
+        default: v0.2.0
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish prebuilt package to AUR
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    timeout-minutes: 15
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.event.workflow_run.head_branch }}
+    steps:
+      - name: Install packaging tools
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git pacman-contrib curl
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.repository.default_branch }}
+
+      - name: Prepare prebuilt AUR recipe
+        run: |
+          set -eu
+          tag="$RELEASE_TAG"
+          case "$tag" in
+            v*) ;;
+            *) echo "Refusing non-release tag: $tag" >&2; exit 1 ;;
+          esac
+          version="${tag#v}"
+          asset="steam-library-mover-${version}-1-x86_64.pkg.tar.zst"
+          curl -fL --retry 5 --retry-delay 2 -o "$asset" \
+            "https://github.com/NasirA1991/steam-library-mover/releases/download/${tag}/${asset}"
+          bsdtar -tf "$asset" >/dev/null
+          checksum="$(sha256sum "$asset" | cut -d' ' -f1)"
+          sed -i "s/^pkgver=.*/pkgver=${version}/" packaging/aur-bin/PKGBUILD
+          sed -i "s/^sha256sums=.*/sha256sums=('${checksum}')/" packaging/aur-bin/PKGBUILD
+          useradd --create-home builder
+          chown -R builder:builder .
+          su builder -c '
+            set -eu
+            cd "$1/packaging/aur-bin"
+            makepkg --printsrcinfo > .SRCINFO
+          ' _ "$GITHUB_WORKSPACE"
+          cp packaging/aur-bin/PKGBUILD "$GITHUB_WORKSPACE/aur-bin-recipe-PKGBUILD"
+          cp packaging/aur-bin/.SRCINFO "$GITHUB_WORKSPACE/aur-bin-recipe-SRCINFO"
+
+      - name: Configure SSH
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          AUR_KNOWN_HOSTS: ${{ secrets.AUR_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur_key
+          chmod 600 ~/.ssh/aur_key
+          printf '%s\n' "$AUR_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Push prebuilt recipe
+        run: |
+          set -eu
+          remote="ssh://aur@aur.archlinux.org/steam-library-mover-bin.git"
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur_key -o IdentitiesOnly=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts"
+          if git clone "$remote" aur-repo 2>/dev/null; then
+            cd aur-repo
+          else
+            mkdir aur-repo
+            cd aur-repo
+            git init -b master
+            git remote add origin "$remote"
+          fi
+          cp ../aur-bin-recipe-PKGBUILD PKGBUILD
+          cp ../aur-bin-recipe-SRCINFO .SRCINFO
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "AUR binary recipe is already up to date."
+            exit 0
+          fi
+          git -c user.name="NasirA1991" -c user.email="evilleader91@gmail.com" \
+            commit -m "Update steam-library-mover-bin to $RELEASE_TAG"
+          git push origin master
