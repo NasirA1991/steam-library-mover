@@ -20,6 +20,7 @@
 #include "librarydelegate.h"
 #include "moveprogressdialog.h"
 #include "reviewdialog.h"
+#include "settingsdialog.h"
 #include "sleepinhibitor.h"
 #include "theme.h"
 #include "uiformat.h"
@@ -2742,78 +2743,23 @@ void MainWindow::promptUnfinishedOperations()
 
 void MainWindow::showSettings()
 {
-    QSettings settings;
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Settings"));
-    auto *layout = new QVBoxLayout(&dialog);
-    auto *themeCombo = new QComboBox(&dialog);
-    themeCombo->addItem(QStringLiteral("Follow system theme"), QStringLiteral("system"));
-    themeCombo->addItem(QStringLiteral("Light"), QStringLiteral("light"));
-    themeCombo->addItem(QStringLiteral("Dark"), QStringLiteral("dark"));
-    const QString currentTheme =
-        settings.value(QStringLiteral("appearance/theme"), QStringLiteral("system")).toString();
-    const int themeIndex = themeCombo->findData(currentTheme);
-    if (themeIndex >= 0)
-        themeCombo->setCurrentIndex(themeIndex);
-    auto *rootEdit = new QLineEdit(&dialog);
-    rootEdit->setPlaceholderText(QStringLiteral("Automatic detection"));
-    rootEdit->setText(settings.value(QStringLiteral("steam/root")).toString());
-    auto *rootForm = new QFormLayout();
-    rootForm->addRow(QStringLiteral("Theme:"), themeCombo);
-    auto *themeNote = new QLabel(
-        QStringLiteral("The window title bar is drawn by KDE and follows your system window "
-                       "decoration. The app's menus, toolbar and content follow the selected "
-                       "theme."),
-        &dialog);
-    themeNote->setWordWrap(true);
-    setMutedLabel(themeNote);
-    rootForm->addRow(QString(), themeNote);
-    rootForm->addRow(QStringLiteral("Steam root override:"), rootEdit);
-    layout->addLayout(rootForm);
-    auto *compact = new QCheckBox(
-        QStringLiteral("Compact game rows (smaller artwork and title, more games visible)"), &dialog);
-    compact->setChecked(settings.value(QStringLiteral("appearance/compact"), true).toBool());
-    layout->addWidget(compact);
-    auto *verify = new QCheckBox(
-        QStringLiteral("Use full SHA-256 verification by default (recommended)"), &dialog);
-    verify->setChecked(settings.value(QStringLiteral("verify/full"), true).toBool());
-    auto *shader = new QCheckBox(QStringLiteral("Move shader cache when present"), &dialog);
-    shader->setChecked(settings.value(QStringLiteral("components/shadercache"), true).toBool());
-    auto *workshop = new QCheckBox(QStringLiteral("Move Workshop content and manifest when present"),
-                                   &dialog);
-    workshop->setChecked(settings.value(QStringLiteral("components/workshop"), true).toBool());
-    auto *artwork = new QCheckBox(
-        QStringLiteral("Download missing box art from Steam's public CDN (cached locally)"), &dialog);
-    artwork->setChecked(settings.value(QStringLiteral("artwork/download"), true).toBool());
-    layout->addWidget(verify);
-    layout->addWidget(shader);
-    layout->addWidget(workshop);
-    layout->addWidget(artwork);
-    auto *note = new QLabel(QStringLiteral(
-                                "Steam must be closed for every move. The mover never runs Steam's own "
-                                "move operation and never deletes source data before verification."),
-                            &dialog);
-    note->setWordWrap(true);
-    layout->addWidget(note);
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    if (dialog.exec() == QDialog::Accepted) {
-        settings.setValue(QStringLiteral("appearance/theme"), themeCombo->currentData().toString());
-        ui::applyTheme(ui::themeFromName(themeCombo->currentData().toString()));
-        refreshTheme();
-        settings.setValue(QStringLiteral("steam/root"), rootEdit->text().trimmed());
-        settings.setValue(QStringLiteral("appearance/compact"), compact->isChecked());
-        applyDensity();
-        settings.setValue(QStringLiteral("verify/full"), verify->isChecked());
-        settings.setValue(QStringLiteral("components/shadercache"), shader->isChecked());
-        settings.setValue(QStringLiteral("components/workshop"), workshop->isChecked());
-        settings.setValue(QStringLiteral("artwork/download"), artwork->isChecked());
-        requestArtworkForScan();
-    }
-}
+    SettingsDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
 
+    QSettings settings;
+    settings.setValue(QStringLiteral("appearance/theme"), dialog.theme());
+    ui::applyTheme(ui::themeFromName(dialog.theme()));
+    refreshTheme();
+    settings.setValue(QStringLiteral("steam/root"), dialog.steamRoot());
+    settings.setValue(QStringLiteral("appearance/compact"), dialog.compactRows());
+    applyDensity();
+    settings.setValue(QStringLiteral("verify/full"), dialog.fullVerify());
+    settings.setValue(QStringLiteral("components/shadercache"), dialog.moveShaderCache());
+    settings.setValue(QStringLiteral("components/workshop"), dialog.moveWorkshop());
+    settings.setValue(QStringLiteral("artwork/download"), dialog.downloadArtwork());
+    requestArtworkForScan();
+}
 void MainWindow::showAbout()
 {
     QMessageBox box(this);
