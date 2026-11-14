@@ -120,6 +120,8 @@ Flathub submission also needs a tagged source (not `type: dir`), screenshots in 
 
 - GCC Debug build + full test suite + metadata validation on Ubuntu 24.04.
 - Clang Release build + tests.
+- Shellcheck plus a `DESTDIR` staged install and missing-manifest uninstall check for
+  `install.sh`/`uninstall.sh`.
 - Arch Linux Release build (tests run in the GCC/Clang jobs).
 
 ## Release checklist

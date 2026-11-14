@@ -60,6 +60,77 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure --timeout 60
 
+  install-script:
+    name: Install scripts · shellcheck + staged install
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build g++ \
+            qt6-base-dev qt6-svg-dev libgl1-mesa-dev \
+            shellcheck
+      - name: Shellcheck
+        run: shellcheck install.sh uninstall.sh
+      - name: Stage install with DESTDIR
+        run: |
+          stage="$(mktemp -d)"
+          DESTDIR="$stage" ./install.sh --skip-deps --skip-tests
+          test -x "$stage/usr/local/bin/steam-library-mover"
+          test -x "$stage/usr/local/bin/steam-library-mover-cli"
+          test -f "$stage/usr/local/share/applications/steam-library-mover.desktop"
+          test -f "$stage/usr/local/share/metainfo/io.github.nasira1991.SteamLibraryMover.metainfo.xml"
+          test -f "$stage/usr/local/share/icons/hicolor/scalable/apps/steam-library-mover.svg"
+      - name: Refuse uninstall without a manifest
+        run: |
+          prefix="$(mktemp -d)"
+          if ./uninstall.sh --prefix "$prefix"; then
+            echo "uninstall.sh unexpectedly succeeded without a manifest" >&2
+            exit 1
+          fi
+
+      - name: Round-trip install and uninstall
+        run: |
+          prefix="$(mktemp -d)/slm"
+          ./install.sh --prefix "$prefix" --skip-deps --skip-tests
+          test -x "$prefix/bin/steam-library-mover"
+          ./uninstall.sh --prefix "$prefix"
+          test -z "$(find "$prefix" -type f)"
+          test ! -d "$prefix/share/doc/steam-library-mover"
+
+      - name: Reinstall preserves old manifest entries
+        run: |
+          prefix="$(mktemp -d)/slm"
+          ./install.sh --prefix "$prefix" --skip-deps --skip-tests
+          marker="$prefix/share/steam-library-mover/reinstall-marker"
+          : > "$marker"
+          printf '%s\n' "$marker" >> "$prefix/share/steam-library-mover/install_manifest.txt"
+          ./install.sh --prefix "$prefix" --skip-deps --skip-tests
+          ./uninstall.sh --prefix "$prefix"
+          test ! -e "$marker"
+
+      - name: System install via sudo, then user install from same checkout
+        run: |
+          set -euo pipefail
+          ./install.sh --skip-deps --skip-tests
+          test -x /usr/local/bin/steam-library-mover
+          test -f /usr/local/share/steam-library-mover/install_manifest.txt
+          # The build dir must not contain root-owned files after a sudo install.
+          test -z "$(find build -user root -print -quit)"
+          ./uninstall.sh
+          test ! -e /usr/local/bin/steam-library-mover
+          test ! -e /usr/local/share/steam-library-mover
+          # A non-sudo install from the same checkout must still work.
+          prefix="$(mktemp -d)/slm"
+          ./install.sh --prefix "$prefix" --skip-deps --skip-tests
+          test -x "$prefix/bin/steam-library-mover"
+          ! grep -q '^/usr/local/' "$prefix/share/steam-library-mover/install_manifest.txt"
+          ./uninstall.sh --prefix "$prefix"
+          test -z "$(find "$prefix" -type f)"
+
   arch:
     name: Arch Linux · Release build
     runs-on: ubuntu-24.04
