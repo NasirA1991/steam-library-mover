@@ -16,6 +16,11 @@ For security-sensitive issues, do **not** open a public issue. Follow [SECURITY.
 
 Build requirements and distribution package names are in the [installation guide](docs/INSTALL.md).
 
+For a user-facing source install, use `./install.sh` (system `/usr/local`) or `./install.sh --user`
+(per-user, no sudo); uninstall with the matching `./uninstall.sh` option. Read the script before
+running it, and do not pipe it from curl. The manual CMake steps below are for development and do
+not install anything.
+
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build --parallel
@@ -66,6 +71,7 @@ Before opening a pull request, run:
 ```bash
 ctest --test-dir build --output-on-failure --timeout 60
 
+shellcheck install.sh uninstall.sh
 desktop-file-validate resources/steam-library-mover.desktop
 appstreamcli validate --no-net resources/io.github.nasira1991.SteamLibraryMover.metainfo.xml
 

@@ -66,24 +66,50 @@ one of the two.
 
 ### AppImage
 
-Download the latest portable build:
+Download the latest portable build and its checksums:
 
 ```bash
 curl -LO https://github.com/NasirA1991/steam-library-mover/releases/latest/download/Steam_Library_Mover-x86_64.AppImage
+curl -LO https://github.com/NasirA1991/steam-library-mover/releases/latest/download/SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS
 chmod +x Steam_Library_Mover-x86_64.AppImage
 ./Steam_Library_Mover-x86_64.AppImage
 ```
 
-### Other distributions
+### Build from source
 
-Use the AppImage above, or [build from source](docs/INSTALL.md). A Flatpak build is not currently
-offered. See [Installation](docs/INSTALL.md) for dependencies, source builds and uninstall
-instructions.
+This installs from a checkout, builds as your user and asks for sudo only for the final install
+when the destination is not writable:
+
+```bash
+git clone https://github.com/NasirA1991/steam-library-mover.git
+cd steam-library-mover
+./install.sh
+# or, for a per-user install with no sudo:
+./install.sh --user
+```
+
+Uninstall with the same option used for installation:
+
+```bash
+./uninstall.sh
+# or
+./uninstall.sh --user
+```
+
+Read the script before running it; do not pipe it from curl. The manual CMake steps for developers,
+dependency packages and `--prefix`/`DESTDIR` details are in [Installation](docs/INSTALL.md).
+
+### Flatpak
+
+No Flatpak: the app needs broad access to all Steam library drives, which a sandbox can't usefully restrict.
 
 ### Uninstall
 
-`sudo pacman -Rns steam-library-mover` for the AUR package, or delete the AppImage. Source-build
-uninstall steps are in [Installation](docs/INSTALL.md#uninstall-a-source-install).
+- **AUR:** `sudo pacman -Rns steam-library-mover` (or `steam-library-mover-bin`).
+- **AppImage:** delete the AppImage file.
+- **Source script:** `./uninstall.sh`, or `./uninstall.sh --user` for a per-user install.
+- **Manual source install:** see [Uninstall a source install](docs/INSTALL.md#uninstall-a-source-install).
 
 After installing, follow [How to move a game](#how-to-move-a-game). The first move should use a
 small game and a current backup.
@@ -330,7 +356,7 @@ includes the exact paths and guidance. If the problem is not explained there,
 
 | Document | Use it for |
 | --- | --- |
-| [Installation](docs/INSTALL.md) | AUR, AppImage, source build, dependencies and uninstall |
+| [Installation](docs/INSTALL.md) | AUR, AppImage, source install script, dependencies and uninstall |
 | [CLI reference](docs/CLI.md) | Commands, options, exit codes, JSON and recovery |
 | [Safety model](docs/SAFETY.md) | Transaction order, journals, rollback and deletion rules |
 | [NTFS libraries](docs/NTFS.md) | Proton prefixes, mount options and NTFS Doctor |

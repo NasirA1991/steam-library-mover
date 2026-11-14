@@ -10,7 +10,8 @@ the [README installation section](../README.md#installation).
 | AUR package | Arch Linux, CachyOS, EndeavourOS | Recommended on Arch-based distributions; builds from the tagged source and also installs the CLI |
 | AUR prebuilt package | Arch Linux, CachyOS, EndeavourOS | Installs the GitHub Actions-built Arch package; conflicts with the source package |
 | AppImage | Other distributions | Portable, x86_64, no system Qt installation required |
-| Source build | Development or unsupported distributions | Requires Qt 6.4+ and a C++20 compiler |
+| Source install script | Development or unsupported distributions | Builds from a checkout with `install.sh`; system or per-user install |
+| Manual source build | Distribution packaging or development | Requires Qt 6.4+ and a C++20 compiler |
 | Flatpak | Not currently offered | Experimental CI artifact only; see [PACKAGING.md](PACKAGING.md#flatpak-experimental-actions-artifact) |
 
 Steam Library Mover is a Linux application. Windows and macOS are not supported.
@@ -102,7 +103,45 @@ APPIMAGE_EXTRACT_AND_RUN=1 ./Steam_Library_Mover-x86_64.AppImage
 Release checksums and build-provenance verification are described in
 [PACKAGING.md](PACKAGING.md#supply-chain). Remove the AppImage file to uninstall it.
 
-## Build from source
+## Source install script
+
+From a checkout, `install.sh` builds as your normal user and installs to `/usr/local` with sudo for
+the final install step:
+
+```bash
+git clone https://github.com/NasirA1991/steam-library-mover.git
+cd steam-library-mover
+./install.sh
+```
+
+For a per-user install with no sudo:
+
+```bash
+./install.sh --user
+```
+
+Use `--prefix PATH` for a custom prefix. The script uses sudo only when that prefix is not writable
+by you. `DESTDIR=... ./install.sh` stages a package build without installing it or refreshing caches.
+`--skip-deps` skips the dependency check, and `--skip-tests` skips the test suite.
+
+Uninstall with the same option used for installation:
+
+```bash
+./uninstall.sh
+# or
+./uninstall.sh --user
+# or
+./uninstall.sh --prefix /opt/steam-library-mover
+```
+
+`uninstall.sh` removes only files recorded in the install manifest and leaves settings, journals,
+caches, game libraries and Proton prefixes alone. Read the script before running it; do not pipe it
+from curl.
+
+## Manual build from source
+
+These steps are for development and distribution packaging. They do not record an install manifest,
+so uninstall them by hand as described below.
 
 ```bash
 git clone https://github.com/NasirA1991/steam-library-mover.git
