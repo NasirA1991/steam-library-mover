@@ -146,3 +146,205 @@ jobs:
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
       - name: Build
         run: cmake --build build --parallel
+
+  get-sh:
+    name: get.sh · ShellCheck + fake release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck python3
+      - name: ShellCheck
+        run: shellcheck get.sh
+      - name: Test verified tarball install, uninstall, and checksum failure
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/get-sh-release"
+          pkg_root="$RUNNER_TEMP/get-sh-package"
+          pkg_name="steam-library-mover-0.2.1"
+          pkg="$pkg_root/$pkg_name"
+          asset="steam-library-mover-0.2.1.tar.gz"
+          release_dir="$root/releases/download/v0.2.1"
+          latest_dir="$root/releases/latest/download"
+          mkdir -p "$pkg" "$release_dir" "$latest_dir"
+
+          cat > "$pkg/install.sh" <<'FAKE_INSTALL'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          mkdir -p "$HOME/.local/share"
+          printf 'installed\n' > "$HOME/.local/share/get-sh-test-installed"
+          FAKE_INSTALL
+          cat > "$pkg/uninstall.sh" <<'FAKE_UNINSTALL'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          rm -f "$HOME/.local/share/get-sh-test-installed"
+          FAKE_UNINSTALL
+          chmod 0755 "$pkg/install.sh" "$pkg/uninstall.sh"
+
+          tar -C "$pkg_root" -czf "$release_dir/$asset" "$pkg_name"
+          (cd "$release_dir" && sha256sum "$asset" > SHA256SUMS)
+          cp "$release_dir/$asset" "$latest_dir/$asset"
+          cp "$release_dir/SHA256SUMS" "$latest_dir/SHA256SUMS"
+
+          bad_dir="$root/bad/releases/download/v0.2.1"
+          mkdir -p "$bad_dir"
+          cp "$release_dir/$asset" "$bad_dir/$asset"
+          printf '%064d  %s\n' 0 "$asset" > "$bad_dir/SHA256SUMS"
+
+          python3 -m http.server 8765 --directory "$root" > "$RUNNER_TEMP/get-sh-http.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 50); do
+            if curl -fsS "http://127.0.0.1:8765/releases/latest/download/SHA256SUMS" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 0.2
+          done
+          curl -fsS "http://127.0.0.1:8765/releases/latest/download/SHA256SUMS" >/dev/null
+
+          home="$RUNNER_TEMP/get-sh-home"
+          mkdir -p "$home"
+          GET_SH_BASE_URL="http://127.0.0.1:8765/releases" \
+            HOME="$home" ./get.sh --method source --version v0.2.1 --user --yes
+          test -f "$home/.local/share/get-sh-test-installed"
+          grep -Fxq 'method=source' "$home/.local/state/steam-library-mover/get-sh.state"
+
+          GET_SH_BASE_URL="http://127.0.0.1:8765/releases" \
+            HOME="$home" ./get.sh --uninstall --yes
+          test ! -e "$home/.local/share/get-sh-test-installed"
+          test ! -e "$home/.local/state/steam-library-mover/get-sh.state"
+
+          bad_home="$RUNNER_TEMP/get-sh-bad-home"
+          mkdir -p "$bad_home"
+          if GET_SH_BASE_URL="http://127.0.0.1:8765/bad/releases" \
+            HOME="$bad_home" ./get.sh --method source --version v0.2.1 --user --yes \
+            > "$RUNNER_TEMP/get-sh-bad.log" 2>&1; then
+            echo "get.sh accepted a tarball with a bad checksum" >&2
+            exit 1
+          fi
+          grep -qi 'checksum mismatch' "$RUNNER_TEMP/get-sh-bad.log"
+          test ! -e "$bad_home/.local/share/get-sh-test-installed"
+
+  get-sh-method-detection:
+    name: get.sh · ${{ matrix.distro }} method detection
+    runs-on: ubuntu-24.04
+    container:
+      image: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: Ubuntu
+            image: ubuntu:24.04
+            expected: appimage
+            install: |
+              apt-get update
+              apt-get install -y --no-install-recommends curl tar ca-certificates git passwd util-linux
+          - distro: Fedora
+            image: fedora:41
+            expected: appimage
+            install: |
+              dnf install -y curl tar ca-certificates git findutils shadow-utils util-linux
+          - distro: Arch
+            image: archlinux:latest
+            expected: aur-makepkg
+            install: |
+              pacman -Syu --noconfirm --needed base-devel git curl tar ca-certificates shadow util-linux
+    timeout-minutes: 20
+    steps:
+      - name: Install test tools
+        run: ${{ matrix.install }}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Dry-run as an unprivileged user
+        run: |
+          useradd -m -s /bin/bash tester
+          chown -R tester:tester "$GITHUB_WORKSPACE"
+          su - tester -c "cd '$GITHUB_WORKSPACE' && ./get.sh --dry-run --yes" \
+            | tee "$RUNNER_TEMP/get-sh-dry-run.txt"
+          grep -Fxq "Method: ${{ matrix.expected }}" "$RUNNER_TEMP/get-sh-dry-run.txt"
+
+  get-sh-tarball:
+    name: get.sh · Ubuntu container tarball round-trip
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:24.04
+    timeout-minutes: 15
+    steps:
+      - name: Install test tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends bash ca-certificates curl tar coreutils python3 passwd
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Verified install and uninstall as a non-root user
+        shell: bash
+        run: |
+          set -euo pipefail
+          useradd -m -s /bin/bash tester
+          chown -R tester:tester "$GITHUB_WORKSPACE"
+
+          root=/tmp/get-sh-release
+          pkg_root=/tmp/get-sh-package
+          pkg_name=steam-library-mover-0.2.1
+          pkg="$pkg_root/$pkg_name"
+          asset="$pkg_name.tar.gz"
+          release_dir="$root/releases/download/v0.2.1"
+          latest_dir="$root/releases/latest/download"
+          mkdir -p "$pkg" "$release_dir" "$latest_dir"
+
+          cat > "$pkg/install.sh" <<'FAKE_INSTALL'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          mkdir -p "$HOME/.local/share"
+          printf 'installed\n' > "$HOME/.local/share/get-sh-test-installed"
+          FAKE_INSTALL
+          cat > "$pkg/uninstall.sh" <<'FAKE_UNINSTALL'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          rm -f "$HOME/.local/share/get-sh-test-installed"
+          FAKE_UNINSTALL
+          chmod 0755 "$pkg/install.sh" "$pkg/uninstall.sh"
+
+          tar -C "$pkg_root" -czf "$release_dir/$asset" "$pkg_name"
+          (cd "$release_dir" && sha256sum "$asset" > SHA256SUMS)
+          cp "$release_dir/$asset" "$latest_dir/$asset"
+          cp "$release_dir/SHA256SUMS" "$latest_dir/SHA256SUMS"
+
+          bad_dir="$root/bad/releases/download/v0.2.1"
+          mkdir -p "$bad_dir"
+          cp "$release_dir/$asset" "$bad_dir/$asset"
+          printf '%064d  %s\n' 0 "$asset" > "$bad_dir/SHA256SUMS"
+
+          python3 -m http.server 8765 --directory "$root" > /tmp/get-sh-http.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 50); do
+            if curl -fsS http://127.0.0.1:8765/releases/latest/download/SHA256SUMS >/dev/null 2>&1; then
+              break
+            fi
+            sleep 0.2
+          done
+          curl -fsS http://127.0.0.1:8765/releases/latest/download/SHA256SUMS >/dev/null
+
+          home=/tmp/get-sh-home
+          mkdir -p "$home"
+          chown -R tester:tester "$home"
+          su - tester -c "cd '$GITHUB_WORKSPACE' && GET_SH_BASE_URL='http://127.0.0.1:8765/releases' HOME='$home' ./get.sh --method source --version v0.2.1 --user --yes"
+          test -f "$home/.local/share/get-sh-test-installed"
+          grep -Fxq 'method=source' "$home/.local/state/steam-library-mover/get-sh.state"
+
+          su - tester -c "cd '$GITHUB_WORKSPACE' && GET_SH_BASE_URL='http://127.0.0.1:8765/releases' HOME='$home' ./get.sh --uninstall --yes"
+          test ! -e "$home/.local/share/get-sh-test-installed"
+          test ! -e "$home/.local/state/steam-library-mover/get-sh.state"
+
+          bad_home=/tmp/get-sh-bad-home
+          mkdir -p "$bad_home"
+          chown -R tester:tester "$bad_home"
+          if su - tester -c "cd '$GITHUB_WORKSPACE' && GET_SH_BASE_URL='http://127.0.0.1:8765/bad/releases' HOME='$bad_home' ./get.sh --method source --version v0.2.1 --user --yes" > /tmp/get-sh-bad.log 2>&1; then
+            echo "get.sh accepted a tarball with a bad checksum" >&2
+            exit 1
+          fi
+          grep -qi 'checksum mismatch' /tmp/get-sh-bad.log
+          test ! -e "$bad_home/.local/share/get-sh-test-installed"
