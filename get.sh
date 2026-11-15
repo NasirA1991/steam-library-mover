@@ -390,7 +390,9 @@ find_helper() {
 has_base_devel() {
     command -v git >/dev/null 2>&1 \
         && command -v makepkg >/dev/null 2>&1 \
-        && pacman -Qg base-devel >/dev/null 2>&1
+        && command -v make >/dev/null 2>&1 \
+        && command -v gcc >/dev/null 2>&1 \
+        && command -v pkg-config >/dev/null 2>&1
 }
 
 manual_aur_steps() {
