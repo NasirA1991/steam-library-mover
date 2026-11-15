@@ -279,6 +279,7 @@ jobs:
           apt-get install -y --no-install-recommends bash ca-certificates curl tar coreutils python3 passwd
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Verified install and uninstall as a non-root user
+        shell: bash
         run: |
           set -euo pipefail
           useradd -m -s /bin/bash tester
