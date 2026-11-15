@@ -48,6 +48,52 @@ These steps install Steam Library Mover itself. They do not install Steam. See
 [Supported Steam installations](#supported-steam-installations) for the Steam variants the app can
 manage.
 
+### Quick install (any distro)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NasirA1991/steam-library-mover/main/get.sh | bash
+```
+
+Prefer to read it first:
+
+```bash
+curl -fsSLo get.sh https://raw.githubusercontent.com/NasirA1991/steam-library-mover/main/get.sh
+less get.sh
+bash get.sh
+```
+
+`get.sh` supports x86_64 Linux and checks every download against the release's
+`SHA256SUMS` before running it:
+
+- **Arch-based:** installs or upgrades the [AUR package](#arch-linux-cachyos-or-endeavouros) with
+  `paru` or `yay`, or with `makepkg` when `base-devel` is available. It never installs a second copy
+  over a package-manager install.
+- **Other distributions:** installs the verified AppImage under `~/.local`, with a launcher,
+  desktop entry and icon. It uses no sudo. FUSE 2 is recommended; without it the wrapper extracts
+  the AppImage on each run and prints the package name to install.
+- **Source:** `--method source` builds from the verified release source archive with the existing
+  `install.sh` (v0.2.1 or newer).
+
+Pass options through the pipe with `bash -s --`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NasirA1991/steam-library-mover/main/get.sh | bash -s -- --user
+```
+
+| Option | Purpose |
+| --- | --- |
+| `--user` | Per-user install (AppImage or source), no sudo |
+| `--method aur\|appimage\|source` | Override automatic method selection |
+| `--version vX.Y.Z` | Pin a release instead of the latest |
+| `--yes` | Skip the confirmation prompt |
+| `--dry-run` | Print the commands without running them |
+| `--uninstall` | Remove the method recorded by the previous run |
+
+The AppImage method installs the **GUI only**; use the AUR or `--method source` when you also need
+`steam-library-mover-cli`. `get.sh` records what it installed in
+`${XDG_STATE_HOME:-~/.local/state}/steam-library-mover/get-sh.state`, so `--uninstall` removes
+exactly those files. Details and manual fallbacks are in [Installation](docs/INSTALL.md).
+
 ### Arch Linux, CachyOS or EndeavourOS
 
 Install from the AUR with your preferred helper:
